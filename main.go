@@ -234,20 +234,18 @@ func updateFire() {
 					fire[src-width] = 0
 				}
 			} else {
-				// Sporadic wave effect: sum of sines + random jitter
-				// This creates a much more chaotic, natural flickering motion
+				// More subtle sporadic wave effect
 				t := float64(tick)
 				yf := float64(y)
-				wave := math.Sin(t*0.12 + yf*0.05) * 1.2
-				wave += math.Sin(t*0.22 - yf*0.12) * 0.7
-				wave += math.Sin(t*0.5) * 0.3 // High frequency jitter
+				wave := math.Sin(t*0.1 + yf*0.05) * 0.6
+				wave += math.Sin(t*0.18 - yf*0.1) * 0.3
 				
-				// Add occasional sporadic gusts
-				if (tick/50)%3 == 0 {
-					wave += math.Sin(yf*0.2) * 1.5
+				// Add occasional very subtle gusts
+				if (tick/60)%4 == 0 {
+					wave += math.Sin(yf*0.15) * 0.4
 				}
 
-				// Propagation with center-biased jitter + wave drift
+				// Propagation with center-biased jitter + subtle wave drift
 				randIdx := rand.Intn(3) // 0, 1, 2
 				dstX := x - randIdx + 1 + int(wave)
 				
