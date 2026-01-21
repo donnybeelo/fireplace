@@ -123,14 +123,17 @@ func generateLogs() {
 	centerX := float64(hearthLeft + hearthRight) / 2.0
 	bottomY := float64(height - 1)
 	
+	// Target point (center of the pile, slightly above bottom)
+	targetX := centerX
+	targetY := bottomY - float64(height)/8.0 
+	
 	aspect := 2.0
 	
 	// Settings
-	baseRadius := float64(height) / 22.0
-	if baseRadius < 1.2 { baseRadius = 1.2 }
+	baseRadius := float64(height) / 25.0
+	if baseRadius < 1.0 { baseRadius = 1.0 }
 	
-	// Shorter logs (was / 2.0)
-	logLen := float64(hearthRight - hearthLeft) / 3.5
+	logLen := float64(hearthRight - hearthLeft) / 3.0
 	
 	type Log struct {
 		x1, y1, x2, y2 float64
@@ -139,60 +142,35 @@ func generateLogs() {
 	}
 	
 	logs := []Log{}
+	numLogs := 18 + rand.Intn(10) // More logs
 	
-	// 1. Base logs (more of them)
-	numBase := 4 + rand.Intn(3)
-	for i := 0; i < numBase; i++ {
-		r := (rand.Float64() - 0.5)
-		// Spread across the hearth
-		offset := r * float64(hearthRight-hearthLeft) * 0.7
-		cx := centerX + offset
+	for i := 0; i < numLogs; i++ {
+		// Starting point: along the bottom hearth
+		x1 := float64(hearthLeft) + rand.Float64()*float64(hearthRight-hearthLeft)
+		y1 := bottomY - rand.Float64()*baseRadius*1.5
 		
-		angle := (rand.Float64() - 0.5) * 0.1
-		l := logLen * (0.8 + rand.Float64()*0.4)
+		// Direction towards target center
+		angle := math.Atan2(targetY - y1, targetX - x1)
 		
-		x1 := cx - (math.Cos(angle) * l / 2.0)
-		y1 := bottomY - baseRadius*0.8 - (math.Sin(angle) * l / 2.0)
-		x2 := cx + (math.Cos(angle) * l / 2.0)
-		y2 := bottomY - baseRadius*0.8 + (math.Sin(angle) * l / 2.0)
+		// Add variance (+/- 15 degrees)
+		angle += (rand.Float64() - 0.5) * 0.5
+		
+		// End point (shorter logs)
+		l := logLen * (0.6 + rand.Float64()*0.6)
+		x2 := x1 + math.Cos(angle)*l
+		y2 := y1 + math.Sin(angle)*l
 		
 		logs = append(logs, Log{
 			x1: x1, y1: y1, x2: x2, y2: y2,
-			r: baseRadius * (0.9 + rand.Float64()*0.2),
+			r: baseRadius * (0.7 + rand.Float64()*0.5),
 			id: i + 1,
-		})
-	}
-	
-	// 2. Stacked Layer (Leaning upwards towards center, more logs)
-	numStack := 8 + rand.Intn(5)
-	for i := 0; i < numStack; i++ {
-		r := (rand.Float64() - 0.5)
-		offset := r * float64(hearthRight-hearthLeft) * 0.6
-		cx := centerX + offset
-		
-		cy := bottomY - baseRadius * 2.2 - (rand.Float64() * baseRadius * 3.0)
-		
-		leanAmt := offset / (float64(hearthRight-hearthLeft) * 0.5) 
-		angle := leanAmt * 0.4
-		angle += (rand.Float64() - 0.5) * 0.2
-		
-		l := logLen * (0.7 + rand.Float64()*0.5)
-		
-		x1 := cx - (math.Cos(angle) * l / 2.0)
-		y1 := cy - (math.Sin(angle) * l / 2.0)
-		x2 := cx + (math.Cos(angle) * l / 2.0)
-		y2 := cy + (math.Sin(angle) * l / 2.0)
-		
-		logs = append(logs, Log{
-			x1: x1, y1: y1, x2: x2, y2: y2,
-			r: baseRadius * (0.8 + rand.Float64()*0.3),
-			id: numBase + i + 1,
 		})
 	}
 
 	// Render logs
 	for y := 0; y < height; y++ {
 		for x := 0; x < width; x++ {
+			// Painter's algorithm
 			for i := len(logs) - 1; i >= 0; i-- {
 				l := logs[i]
 				px, py := float64(x), float64(y) * aspect
