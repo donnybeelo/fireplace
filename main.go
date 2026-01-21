@@ -20,6 +20,7 @@ var (
 	fire        []int
 	woodMap     []int       // Stores log ID for each pixel (0 = empty)
 	colors      []tcell.Color
+	tick        int         // Frame counter for animations
 )
 
 // Doom fire palette definition (RGB)
@@ -90,6 +91,7 @@ func main() {
 				}
 			}
 		case <-ticker.C:
+			tick++
 			updateFire()
 			drawFire()
 			drawEnvironment()
@@ -232,9 +234,14 @@ func updateFire() {
 					fire[src-width] = 0
 				}
 			} else {
-				// Propagation with center-biased jitter
+				// Wave effect: horizontal drift based on time (tick) and height (y)
+				// Slowly shifts the fire left/right as it rises
+				wave := math.Sin(float64(tick)*0.15 + float64(y)*0.1) * 1.5
+				
+				// Propagation with center-biased jitter + wave drift
 				randIdx := rand.Intn(3) // 0, 1, 2
-				dstX := x - randIdx + 1
+				dstX := x - randIdx + 1 + int(wave)
+				
 				if dstX < 0 {
 					dstX = 0
 				} else if dstX >= width {
@@ -249,18 +256,16 @@ func updateFire() {
 				// Base random decay
 				decay := rand.Intn(2)
 				
-				// Non-linear distance decay for a pointier look
-				// Using normDist^2 creates a sharp peak in the center
+				// EVEN Pointier: Non-linear distance decay
 				dist := math.Abs(float64(x - center))
 				normDist := dist / halfWidth
-				decay += int(normDist * normDist * 8.0)
+				// Increased multiplier to 12.0 for a sharper peak
+				decay += int(normDist * normDist * 12.0)
 				
 				// Height-based decay (y=0 is top)
-				// Fire should taper as it rises
 				if y < fireHeight/2 {
-					// Use a gradual increase in decay as we approach the top
 					heightDecay := 1.0 - (float64(y) / (float64(fireHeight) / 2.0))
-					decay += int(heightDecay * 3.0)
+					decay += int(heightDecay * 4.0)
 				}
 
 				newHeat := pixel - decay
@@ -287,19 +292,18 @@ func updateFire() {
 
 		idx := fireY * width + x
 		if idx >= 0 && idx < len(fire) {
-			// Center-biased ignition intensity
 			dist := math.Abs(float64(x - center))
 			normDist := dist / halfWidth
 			
 			r := rand.Intn(100)
 			heat := 0
 			
-			// Higher intensity threshold near center
-			threshold := 30.0 + (normDist * 40.0) // 30% chance at center, 70% at edge
+			// Tighter ignition core
+			threshold := 20.0 + (normDist * 60.0) 
 			if float64(r) > threshold {
 				heat = 36
-				if normDist > 0.6 && r > 90 {
-					heat = 20 // Cool down edges
+				if normDist > 0.5 && r > 85 {
+					heat = 20
 				}
 			}
 			
