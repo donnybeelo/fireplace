@@ -21,6 +21,7 @@ var (
 	woodMap     []int       // Stores log ID for each pixel (0 = empty)
 	colors      []tcell.Color
 	tick        int         // Frame counter for animations
+	logCount    int         // Number of logs generated
 )
 
 // Doom fire palette definition (RGB)
@@ -93,8 +94,19 @@ func main() {
 		case <-ticker.C:
 			tick++
 			updateFire()
+			
+			// Layered rendering
+			screen.Clear()
+			
+			// 1. Draw logs in the back half
+			drawEnvironment(1, logCount/2)
+			
+			// 2. Draw fire (merges with back logs)
 			drawFire()
-			drawEnvironment()
+			
+			// 3. Draw logs in the front half (on top of fire)
+			drawEnvironment(logCount/2+1, logCount)
+			
 			screen.Show()
 		}
 	}
@@ -147,6 +159,7 @@ func generateLogs() {
 	
 	logs := []Log{}
 	numLogs := 60 + rand.Intn(20) // significantly more sticks
+	logCount = numLogs
 	
 	for i := 0; i < numLogs; i++ {
 		// Random angle
@@ -355,8 +368,29 @@ func drawFire() {
 			heat1 := fire[sy1*width+x]
 			heat2 := fire[sy2*width+x] // Bottom half
 
+			if heat1 == 0 && heat2 == 0 {
+				continue
+			}
+
+			// Get existing content (the back logs) to merge with fire
+			_, _, existingStyle, _ := screen.GetContent(x, y)
+			existingFg, existingBg, _ := existingStyle.Decompose()
+
 			c1 := colors[clamp(heat1)]
 			c2 := colors[clamp(heat2)]
+
+			// If a half-block has no fire, keep the existing log color
+			// Note: logs are drawn using both Fg and Bg depending on texture.
+			// To simplify, we'll use the background color as the "log color".
+			if heat1 == 0 {
+				c1 = existingFg // Often logs use foreground for highlights
+				if existingFg == tcell.ColorWhite || existingFg == tcell.ColorBlack {
+					c1 = existingBg
+				}
+			}
+			if heat2 == 0 {
+				c2 = existingBg
+			}
 
 			// Upper half block: Foreground is top (c1), Background is bottom (c2)
 			style := tcell.StyleDefault.Foreground(c1).Background(c2)
@@ -365,7 +399,7 @@ func drawFire() {
 	}
 }
 
-func drawEnvironment() {
+func drawEnvironment(minID, maxID int) {
 	woodColor := tcell.NewRGBColor(101, 67, 33) // Deep Brown
 	darkWoodColor := tcell.NewRGBColor(60, 30, 10)
 	
@@ -376,8 +410,8 @@ func drawEnvironment() {
 				logID = woodMap[y*width+x]
 			}
 			
-			// Draw Wood
-			if logID > 0 {
+			// Only draw logs in the specified ID range
+			if logID >= minID && logID <= maxID {
 				noise := (x*57 + y*131) % 10
 				var style tcell.Style
 				if noise > 7 {
