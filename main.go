@@ -234,10 +234,19 @@ func updateFire() {
 					fire[src-width] = 0
 				}
 			} else {
-				// Wave effect: horizontal drift based on time (tick) and height (y)
-				// Slowly shifts the fire left/right as it rises
-				wave := math.Sin(float64(tick)*0.15 + float64(y)*0.1) * 1.5
+				// Sporadic wave effect: sum of sines + random jitter
+				// This creates a much more chaotic, natural flickering motion
+				t := float64(tick)
+				yf := float64(y)
+				wave := math.Sin(t*0.12 + yf*0.05) * 1.2
+				wave += math.Sin(t*0.22 - yf*0.12) * 0.7
+				wave += math.Sin(t*0.5) * 0.3 // High frequency jitter
 				
+				// Add occasional sporadic gusts
+				if (tick/50)%3 == 0 {
+					wave += math.Sin(yf*0.2) * 1.5
+				}
+
 				// Propagation with center-biased jitter + wave drift
 				randIdx := rand.Intn(3) // 0, 1, 2
 				dstX := x - randIdx + 1 + int(wave)
