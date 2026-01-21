@@ -131,40 +131,41 @@ func generateLogs() {
 	peakY := bottomY - float64(height)/10.0
 	
 	// Base dimensions (ellipse on the "ground")
-	baseRX := float64(hearthRight-hearthLeft) * 0.4
-	baseRY := float64(height) / 25.0 // Shallow for depth projection
+	// Cover more width (0.5 * width = full width)
+	baseRX := float64(hearthRight-hearthLeft) * 0.5
+	baseRY := float64(height) / 20.0 
 	
-	baseRadius := float64(height) / 35.0 // Thinner "sticks"
-	if baseRadius < 0.7 { baseRadius = 0.7 }
+	baseRadius := float64(height) / 40.0 // Slightly thinner for more sticks
+	if baseRadius < 0.6 { baseRadius = 0.6 }
 
 	type Log struct {
 		x1, y1, x2, y2 float64
 		r              float64
-		depth          float64 // Bottom Y-coord for painter's algorithm
+		depth          float64 
 		id             int
 	}
 	
 	logs := []Log{}
-	numLogs := 35 + rand.Intn(15) // Many sticks
+	numLogs := 60 + rand.Intn(20) // significantly more sticks
 	
 	for i := 0; i < numLogs; i++ {
-		// Random angle around the center for the base point
+		// Random angle
 		theta := rand.Float64() * 2.0 * math.Pi
 		
-		// Distance from center at base (with some randomization)
-		dist := 0.4 + rand.Float64()*0.6
+		// Distance from center at base - use more spread
+		dist := 0.2 + rand.Float64()*0.8
 		
 		// Starting point (Ground)
 		x1 := centerX + baseRX * math.Cos(theta) * dist
 		y1 := (bottomY - baseRY) + baseRY * math.Sin(theta) * dist
 		
-		// Peak point (where they meet)
-		// Pass through a small jittered volume at the peak
-		x2 := peakX + (rand.Float64()-0.5)*6.0
-		y2 := peakY + (rand.Float64()-0.5)*3.0
+		// Peak point
+		// Keep peak slightly more dispersed for a messy look
+		x2 := peakX + (rand.Float64()-0.5)*10.0
+		y2 := peakY + (rand.Float64()-0.5)*5.0
 		
-		// For a "dropped" look, extend some sticks slightly past the peak
-		ext := 0.8 + rand.Float64()*0.5
+		// Extend sticks past peak
+		ext := 0.7 + rand.Float64()*0.6
 		dx, dy := x2-x1, y2-y1
 		x2 = x1 + dx*ext
 		y2 = y1 + dy*ext
@@ -172,7 +173,7 @@ func generateLogs() {
 		logs = append(logs, Log{
 			x1: x1, y1: y1, x2: x2, y2: y2,
 			r: baseRadius * (0.6 + rand.Float64()*0.8),
-			depth: y1, // Larger y1 means closer to viewer
+			depth: y1,
 			id: i + 1,
 		})
 	}
