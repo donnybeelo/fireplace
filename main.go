@@ -65,7 +65,7 @@ func main() {
 	screen.Clear()
 
 	// Initial setup
-	rand.Seed(time.Now().UnixNano())
+	rand.New(rand.NewSource(time.Now().UnixNano()))
 	resize()
 
 	// Event handling
@@ -146,130 +146,78 @@ func generateLogs() {
 	}
 
 	tempLogs := []Log{}
-
 	numLogs := 100
-
 	// Ensure we have an even number for pairing
-
 	if numLogs%2 != 0 {
-
 		numLogs++
-
 	}
-
 	sigmaX := float64(width) * 0.25
 
 	// 1. Generate sticks in pairs to ensure balance
-
 	for i := 0; i < numLogs; i += 2 {
-
 		// Sample a distance from center
-
 		offset := math.Abs(rand.NormFloat64() * sigmaX)
-
 		// Attempt to place a pair (left and right)
-
-		for side := 0; side < 2; side++ {
-
+		for side := range []int{0, 1} {
 			var midX, midY float64
-
 			var length, angle, r float64
-
 			dir := 1.0
 
 			if side == 0 {
-
 				dir = -1.0
-
 			}
 
 			maxAttempts := 15
 
-			for attempt := 0; attempt < maxAttempts; attempt++ {
-
+			for attempt := range make([]struct{}, maxAttempts) {
 				// Each side gets its own variation but same horizontal distance magnitude
-
 				thisOffset := offset * (0.9 + rand.Float64()*0.2)
-
 				midX = centerX + (dir * thisOffset)
-
 				distFromCenter := (midX - centerX) / sigmaX
 
 				maxH := (float64(height) / 3.0) * math.Exp(-distFromCenter*distFromCenter*0.8)
-
 				length = 7.0 + rand.Float64()*12.0
 
 				angle = (rand.Float64() - 0.5) * math.Pi * 0.6
-
 				r = baseRadius * (0.6 + rand.Float64()*0.8)
-
 				limitY := bottomY - r - 0.5
-
 				hRange := maxH
 
 				if hRange > limitY {
-
 					hRange = limitY
-
 				}
-
 				midY = limitY - rand.Float64()*hRange
-
 				if len(tempLogs) < 4 {
-
 					// Seed the first few sticks near the center
-
 					if math.Abs(midX-centerX) < 5.0 {
-
 						break
-
 					}
-
 					continue
 
 				}
 
 				// Proximity check
-
 				isNear := false
-
 				proximityLimit := length * 1.5
-
 				for _, existing := range tempLogs {
-
 					dx := midX - existing.midX
-
 					dy := midY - existing.midY
-
 					if dx*dx+dy*dy < proximityLimit*proximityLimit {
-
 						isNear = true
-
 						break
-
 					}
-
 				}
 
 				if isNear || attempt == maxAttempts-1 {
-
 					break
-
 				}
-
 			}
-
 			tempLogs = append(tempLogs, Log{
-
 				midX: midX, midY: midY,
-
 				angle: angle, length: length, r: r,
-
 				depth: midY, id: len(tempLogs) + 1,
 			})
-
 		}
-
 	}
 
 	// 2. Adjust angles: if nothing is underneath the center, make it horizontal
@@ -411,10 +359,7 @@ func updateFire() {
 					}
 				}
 
-				newHeat := pixel - decay
-				if newHeat < 0 {
-					newHeat = 0
-				}
+				newHeat := max(pixel - decay, 0)
 				fire[dstIndex] = newHeat
 			}
 		}
@@ -453,7 +398,7 @@ func updateFire() {
 
 		if rand.Float64() > normDist*0.9 {
 			// Inject heat at various depths within logs
-			for i := 0; i < 3; i++ { // More heat sources
+			for range []int{0, 1, 2} { // More heat sources
 				// Fire extends higher into the bundle
 				d := rand.Intn(h*3/4 + 1)
 				fireY := (height - 1 - d) * 2
@@ -494,7 +439,7 @@ func drawFireBlended() {
 			}
 
 			// Get existing color from the sticks
-			_, _, existingStyle, _ := screen.GetContent(x, y)
+			_, existingStyle, _ := screen.Get(x, y)
 			existingFg, existingBg, _ := existingStyle.Decompose()
 
 			// FIX: Ensure we don't blend with the terminal's default white/grey
@@ -530,11 +475,11 @@ func blendColors(base, overlay tcell.Color, heat int) tcell.Color {
 	or, og, ob := overlay.RGB()
 
 	// Use heat as the blend factor
-	alpha := float64(heat) / 36.0 
-	
+	alpha := float64(heat) / 40.0
+
 	// Ensure high heat doesn't blow out to white by capping the intensity
-	if alpha > 0.8 {
-		alpha = 0.8
+	if alpha > 0.85 {
+		alpha = 0.85
 	}
 
 	r := int32(float64(br)*(1.0-alpha) + float64(or)*alpha)
