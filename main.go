@@ -120,6 +120,10 @@ func initFire() {
 }
 
 func updateFire() {
+	// Center calculation
+	center := (hearthLeft + hearthRight) / 2
+	halfWidth := float64(hearthRight - hearthLeft) / 2.0
+
 	// 1. Propagate and decay
 	for x := 0; x < width; x++ {
 		for y := 1; y < fireHeight; y++ {
@@ -146,17 +150,19 @@ func updateFire() {
 
 				decay := rand.Intn(2) // 0 or 1
 				
-				// Extra cooling outside the hearth (containment)
-				if x < hearthLeft || x >= hearthRight {
-					decay += 3 // Die out very fast on sides
-				}
+				// Distance-based decay to create "peak" in middle
+				// normalized distance from center 0..1
+				dist := math.Abs(float64(x - center))
+				normDist := dist / halfWidth
 				
-				// Extra cooling near top to ensure flame height is realistic
-				// y=0 is top.
+				// Add extra decay based on distance from center
+				// This shapes the fire into a cone/peak
+				decay += int(normDist * 4.0)
+				
+				// General height control: shorter fire
+				// y=0 is top. If y is small (high up), decay more.
 				if y < fireHeight/2 {
-					if rand.Intn(10) > 7 {
-						decay++
-					}
+					decay += 2
 				}
 
 				newHeat := pixel - decay
@@ -169,48 +175,56 @@ func updateFire() {
 	}
 
 	// 2. Refuel from wood surface
-	// Only refuel within the hearth
 	for x := hearthLeft; x < hearthRight; x++ {
 		// Log height at this x
 		h := getLogHeight(x)
-		base := woodHeight / 3
-		woodTopDist := base + h
+		if h <= 0 { continue }
+		
+		woodTopDist := h 
 		
 		// Screen row for top of wood
 		screenY := height - 1 - woodTopDist
 		
-		// Fire grid row (approximate)
-		// We want to ignite the pixels just *above* or *on* the wood.
-		// Since y=0 is top, larger y is lower.
-		// ignite at the wood surface.
+		// Fire grid row
 		fireY := screenY * 2
 		
-		// Add some variability to source depth
-		fireY += rand.Intn(3)
+		// Add some random depth to make it look like it's coming from inside the pile
+		fireY += rand.Intn(6)
 		
 		if fireY >= fireHeight { fireY = fireHeight - 1 }
 		if fireY < 0 { fireY = 0 }
 
 		idx := fireY * width + x
 		if idx >= 0 && idx < len(fire) {
-			// Randomly vary heat to create flicker
+			// Randomly vary heat to create flicker and multiple source points
 			r := rand.Intn(100)
 			heat := 36
-			if r > 80 {
-				heat = 32 // cooler
-			} else if r > 95 {
-				heat = 0 // gap
+			
+			// Less uniform ignition
+			if r > 40 {
+				heat = 0 // Gap
+			} else if r > 30 {
+				heat = 36 // Hot spot
+			} else {
+				heat = 20 // Cooler spot
 			}
-			fire[idx] = heat
+			
+			// Always ignite center bottom more
+			dist := math.Abs(float64(x - center))
+			if dist < 5 && rand.Intn(10) > 2 {
+				heat = 36
+			}
+			
+			if heat > 0 {
+				fire[idx] = heat
+			}
 		}
 	}
 	
 	// 3. Embers (Sparks)
-	// Randomly ignite pixels above the fire source to simulate flying sparks
-	if rand.Intn(100) < 15 { // 15% chance
+	if rand.Intn(100) < 8 { // 8% chance
 		rx := hearthLeft + rand.Intn(hearthRight - hearthLeft)
-		// Spawn in the middle-ish height
-		ry := (height / 2) * 2 + rand.Intn(10)
+		ry := (height / 2) * 2 + rand.Intn(20)
 		idx := ry * width + rx
 		if idx >= 0 && idx < len(fire) {
 			fire[idx] = 36 // Hot spark
@@ -247,58 +261,49 @@ func drawFire() {
 func drawEnvironment() {
 	woodColor := tcell.NewRGBColor(139, 69, 19) // SaddleBrown
 	darkWoodColor := tcell.NewRGBColor(101, 67, 33) // Darker Brown
-	brickColor := tcell.NewRGBColor(178, 34, 34) // Firebrick
-	mortarColor := tcell.NewRGBColor(100, 100, 100) // Dark Gray for mortar
+	ashColor := tcell.NewRGBColor(50, 50, 50) // Dark Grey for ash/shadows
+
+	center := (hearthLeft + hearthRight) / 2
 
 	for y := 0; y < height; y++ {
 		for x := 0; x < width; x++ {
-			// 1. Draw Walls (Bricks)
-			if x < hearthLeft || x >= hearthRight {
-				// Simple brick pattern
-				isMortar := false
-				if y % 4 == 3 { // Horizontal mortar line every 4th line
-					isMortar = true
-				} else {
-					// Vertical mortar, staggered
-					rowBlock := y / 4
-					offset := 0
-					if rowBlock % 2 == 1 {
-						offset = 2
-					}
-					if (x + offset) % 8 == 0 { // Wider bricks
-						isMortar = true
-					}
-				}
-				
-				style := tcell.StyleDefault.Background(brickColor).Foreground(mortarColor)
-				char := ' '
-				if isMortar {
-					style = tcell.StyleDefault.Background(mortarColor)
-				}
-				screen.SetContent(x, y, char, nil, style)
-				continue
-			}
-
-			// 2. Draw Wood Logs
 			if isWood(x, y) {
-				// Deterministic noise for texture
+				// Texture logic for logs
+				// Determine angle based on side of center
+				// Left side leans right (positive slope visual), Right side leans left
+				
+				// Texture noise
 				noise := (x*57 + y*131) % 10
+				
 				var style tcell.Style
-				if noise > 6 {
-					style = tcell.StyleDefault.Background(darkWoodColor).Foreground(woodColor)
+				
+				// Add some "depth" - center logs are brighter/front
+				dist := math.Abs(float64(x - center))
+				if dist < 5 && noise > 5 {
+					style = tcell.StyleDefault.Background(woodColor).Foreground(tcell.ColorBlack)
 				} else {
-					style = tcell.StyleDefault.Background(woodColor).Foreground(darkWoodColor)
+					style = tcell.StyleDefault.Background(darkWoodColor).Foreground(woodColor)
 				}
 				
 				char := ' '
-				if noise == 0 {
-					char = '|'
-				} else if noise == 1 {
-					char = '#'
-				} else if noise == 2 {
-					char = '='
+				// Draw grain direction
+				if x < center {
+					if (x + y) % 3 == 0 { char = '\\' } // Leaning in from left
+				} else {
+					if (x - y) % 3 == 0 { char = '/' } // Leaning in from right
 				}
+				
+				// Occasional imperfections
+				if noise == 0 { char = 'O' } // Knot
+				
 				screen.SetContent(x, y, char, nil, style)
+			} else {
+				// Maybe draw some ash at the very bottom
+				if y == height - 1 && x >= hearthLeft && x < hearthRight {
+					if rand.Intn(10) > 6 {
+						screen.SetContent(x, y, '.', nil, tcell.StyleDefault.Foreground(ashColor))
+					}
+				}
 			}
 		}
 	}
@@ -320,21 +325,31 @@ func getLogHeight(x int) int {
 		return 0
 	}
 	
-	// Normalize x within the hearth
-	relX := float64(x - hearthLeft)
-	w := float64(hearthRight - hearthLeft)
+	center := (hearthLeft + hearthRight) / 2
+	halfWidth := float64(hearthRight - hearthLeft) / 2.0
 	
-	// 3 distinct humps (logs)
-	// sin(x) goes 0->1->0->-1->0
-	// We want |sin| or max(0, sin)
-	// Let's use absolute sine for a packed look
-	val := math.Abs(math.Sin(relX / w * 3 * math.Pi))
+	dist := math.Abs(float64(x - center))
+	normDist := dist / halfWidth
 	
-	// Scale to woodHeight (leaving some space for the base)
-	// 2/3 of woodHeight is the hump, 1/3 is the base
-	humpH := float64(woodHeight) * 0.7
+	if normDist > 1.0 {
+		return 0
+	}
 	
-	return int(val * humpH)
+	// Teepee shape: Linear decrease from center
+	// Create "gaps" to simulate distinct logs leaning in
+	// We want roughly 3-4 logs visible
+	
+	// Base cone height
+	coneH := float64(woodHeight) * (1.0 - normDist)
+	
+	// Modulate to create log separation
+	// Using a cosine pattern to make "humps" (logs) and "valleys" (gaps)
+	// We want the logs to be higher than the gaps.
+	// cos(x) varies -1 to 1.
+	
+	mod := 1.0 + 0.3 * math.Cos(float64(x - center) * 0.5)
+	
+	return int(coneH * mod)
 }
 
 func isWood(x, y int) bool {
@@ -347,11 +362,9 @@ func isWood(x, y int) bool {
 		return false
 	}
 	
-	// Base height (always present in hearth)
-	base := woodHeight / 3
-	
-	// Extra height from the log shape
 	h := getLogHeight(x)
+	// Simulate "leaning" by making the base wider/solid and the top sparse?
+	// The getLogHeight already gives a conical profile.
 	
-	return distFromBottom < (base + h)
+	return distFromBottom < h
 }
