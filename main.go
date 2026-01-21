@@ -127,111 +127,58 @@ func generateLogs() {
 	aspect := 2.0
 	
 	// Settings
-	// Keep radius small for a low pile
-	baseRadius := float64(height) / 20.0
+	baseRadius := float64(height) / 16.0
 	if baseRadius < 1.5 { baseRadius = 1.5 }
 	
-	logLen := float64(hearthRight - hearthLeft) / 2.0
+	logLen := float64(hearthRight - hearthLeft) / 1.7
 	
 	type Log struct {
-		x1, y1, x2, y2 float64 // Endpoints
-		r              float64 // Radius
+		x1, y1, x2, y2 float64
+		r              float64
 		id             int
 	}
 	
 	logs := []Log{}
 	
-	// Randomize logic
-	// 1. Base logs (2-3 logs)
-	numBase := 2 + rand.Intn(2)
-	for i := 0; i < numBase; i++ {
-		// Scatter around center
-		offset := (rand.Float64() - 0.5) * logLen * 0.5
-		cx := centerX + offset
-		
-		// Angle: mostly horizontal (-10 to 10 degrees)
-		angle := (rand.Float64() - 0.5) * 0.3
-		
-		// Length
-		l := logLen * (0.8 + rand.Float64()*0.4)
-		
-		// Endpoints
-		x1 := cx - (math.Cos(angle) * l / 2.0)
-		y1 := bottomY - baseRadius*0.8 - (math.Sin(angle) * l / 2.0)
-		x2 := cx + (math.Cos(angle) * l / 2.0)
-		y2 := bottomY - baseRadius*0.8 + (math.Sin(angle) * l / 2.0)
-		
-		logs = append(logs, Log{
-			x1: x1, y1: y1, x2: x2, y2: y2,
-			r: baseRadius * (0.9 + rand.Float64()*0.2),
-			id: i + 1,
-		})
-	}
+	// 1. Bottom Left Log (slightly angled)
+	logs = append(logs, Log{
+		x1: centerX - logLen*0.7, y1: bottomY - baseRadius*1.2,
+		x2: centerX - logLen*0.1, y2: bottomY - baseRadius*1.5,
+		r: baseRadius, id: 1,
+	})
 	
-	// 2. Leaning logs (3-4 logs)
-	numLean := 3 + rand.Intn(2)
-	for i := 0; i < numLean; i++ {
-		// Random position
-		offset := (rand.Float64() - 0.5) * logLen * 0.8
-		cx := centerX + offset
-		
-		// Higher up
-		cy := bottomY - baseRadius * 2.0 - (rand.Float64() * baseRadius)
-		
-		// Random angle: steeper (-45 to 45 degrees)
-		angle := (rand.Float64() - 0.5) * 2.0
-		
-		l := logLen * (0.7 + rand.Float64()*0.5)
-		
-		x1 := cx - (math.Cos(angle) * l / 2.0)
-		y1 := cy - (math.Sin(angle) * l / 2.0)
-		x2 := cx + (math.Cos(angle) * l / 2.0)
-		y2 := cy + (math.Sin(angle) * l / 2.0)
-		
-		logs = append(logs, Log{
-			x1: x1, y1: y1, x2: x2, y2: y2,
-			r: baseRadius * (0.8 + rand.Float64()*0.3),
-			id: numBase + i + 1,
-		})
-	}
+	// 2. Bottom Right Log (slightly angled)
+	logs = append(logs, Log{
+		x1: centerX + logLen*0.1, y1: bottomY - baseRadius*1.5,
+		x2: centerX + logLen*0.7, y2: bottomY - baseRadius*1.2,
+		r: baseRadius, id: 2,
+	})
+	
+	// 3. Top Center Log (resting across)
+	logs = append(logs, Log{
+		x1: centerX - logLen*0.4, y1: bottomY - baseRadius*2.5,
+		x2: centerX + logLen*0.4, y2: bottomY - baseRadius*2.8,
+		r: baseRadius * 0.9, id: 3,
+	})
 
-	// Render Capsule SDF
+	// Render logs
 	for y := 0; y < height; y++ {
 		for x := 0; x < width; x++ {
-			// Iterate reverse for painter's algo
 			for i := len(logs) - 1; i >= 0; i-- {
 				l := logs[i]
-				
-				// Point P
 				px, py := float64(x), float64(y) * aspect
-				
-				// Segment AB (scale Y by aspect)
 				ax, ay := l.x1, l.y1 * aspect
 				bx, by := l.x2, l.y2 * aspect
 				
-				// Vector AB
 				abx, aby := bx - ax, by - ay
-				// Vector AP
 				apx, apy := px - ax, py - ay
-				
-				// Project AP onto AB to find t
 				lenSq := abx*abx + aby*aby
 				t := (apx*abx + apy*aby) / lenSq
+				if t < 0 { t = 0 } else if t > 1 { t = 1 }
 				
-				if t < 0 { t = 0 }
-				if t > 1 { t = 1 }
-				
-				// Closest point
-				cx := ax + t*abx
-				cy := ay + t*aby
-				
-				// Distance
+				cx, cy := ax + t*abx, ay + t*aby
 				dx, dy := px - cx, py - cy
-				distSq := dx*dx + dy*dy
-				
-				rPix := l.r * aspect
-				
-				if distSq <= rPix*rPix {
+				if dx*dx + dy*dy <= (l.r*aspect)*(l.r*aspect) {
 					woodMap[y*width+x] = l.id
 					break
 				}
@@ -396,21 +343,10 @@ func drawFire() {
 }
 
 func drawEnvironment() {
-	// Colors for different logs to distinguish them
-	woodColors := []tcell.Color{
-		tcell.ColorBlack, // 0 placeholder
-		tcell.NewRGBColor(139, 69, 19), // SaddleBrown
-		tcell.NewRGBColor(160, 82, 45), // Sienna
-		tcell.NewRGBColor(205, 133, 63), // Peru
-		tcell.NewRGBColor(120, 60, 20),
-		tcell.NewRGBColor(150, 75, 40),
-		tcell.NewRGBColor(190, 120, 50),
-		tcell.NewRGBColor(140, 70, 25),
-	}
+	woodColor := tcell.NewRGBColor(101, 67, 33) // Deep Brown
+	darkWoodColor := tcell.NewRGBColor(60, 30, 10)
+	grateColor := tcell.NewRGBColor(40, 40, 40) // Dark Iron
 	
-	darkWoodColor := tcell.NewRGBColor(50, 25, 10) 
-	ashColor := tcell.NewRGBColor(50, 50, 50)
-
 	for y := 0; y < height; y++ {
 		for x := 0; x < width; x++ {
 			logID := 0
@@ -418,46 +354,45 @@ func drawEnvironment() {
 				logID = woodMap[y*width+x]
 			}
 			
+			// 1. Draw Grate/Andirons (Iron bars)
+			isGrate := false
+			if y >= height-int(float64(height)/5.0) {
+				// Vertical bars
+				if (x - hearthLeft) % (width/10) == 0 && x > hearthLeft && x < hearthRight {
+					isGrate = true
+				}
+				// Bottom horizontal bar
+				if y == height - 1 && x >= hearthLeft && x < hearthRight {
+					isGrate = true
+				}
+			}
+			
+			if isGrate {
+				screen.SetContent(x, y, '┃', nil, tcell.StyleDefault.Background(tcell.ColorBlack).Foreground(grateColor))
+				continue
+			}
+
+			// 2. Draw Wood
 			if logID > 0 {
-				// Pick color based on log ID
-				colorIdx := (logID - 1) % (len(woodColors) - 1) + 1
-				baseColor := woodColors[colorIdx]
-				
-				// Texture
 				noise := (x*57 + y*131) % 10
 				var style tcell.Style
-				
-				if noise > 6 {
-					style = tcell.StyleDefault.Background(darkWoodColor).Foreground(baseColor)
+				if noise > 7 {
+					style = tcell.StyleDefault.Background(darkWoodColor).Foreground(woodColor)
 				} else {
-					style = tcell.StyleDefault.Background(baseColor).Foreground(darkWoodColor)
+					style = tcell.StyleDefault.Background(woodColor).Foreground(darkWoodColor)
 				}
 				
 				char := ' '
-				if logID % 2 == 0 {
-					if (x+y)%4 == 0 { char = '/' }
-				} else {
-					if (x-y)%4 == 0 { char = '\\' }
-				}
+				// Sparse texture
+				if noise == 0 { char = '░' }
 				
-				// Outline effect for separation
-				isEdge := false
-				// Check Top (y-1)
-				if y > 0 && woodMap[(y-1)*width+x] != logID && woodMap[(y-1)*width+x] != 0 { isEdge = true }
-				
-				if isEdge {
-					style = tcell.StyleDefault.Background(tcell.ColorBlack).Foreground(baseColor)
-					char = '_'
+				// Highlight top edge
+				if y > 0 && woodMap[(y-1)*width+x] == 0 {
+					style = style.Foreground(tcell.NewRGBColor(139, 69, 19))
+					char = '▄'
 				}
 				
 				screen.SetContent(x, y, char, nil, style)
-			} else {
-				// Ash
-				if y == height - 1 && x >= hearthLeft && x < hearthRight {
-					if rand.Intn(10) > 6 {
-						screen.SetContent(x, y, '.', nil, tcell.StyleDefault.Foreground(ashColor))
-					}
-				}
 			}
 		}
 	}
