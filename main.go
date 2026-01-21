@@ -127,9 +127,10 @@ func generateLogs() {
 	
 	// Settings
 	baseRadius := float64(height) / 22.0
-	if baseRadius < 1.5 { baseRadius = 1.5 }
+	if baseRadius < 1.2 { baseRadius = 1.2 }
 	
-	logLen := float64(hearthRight - hearthLeft) / 2.0
+	// Shorter logs (was / 2.0)
+	logLen := float64(hearthRight - hearthLeft) / 3.5
 	
 	type Log struct {
 		x1, y1, x2, y2 float64
@@ -139,19 +140,15 @@ func generateLogs() {
 	
 	logs := []Log{}
 	
-	// 1. Base Layer (Scatter flat logs)
-	numBase := 3
+	// 1. Base logs (more of them)
+	numBase := 4 + rand.Intn(3)
 	for i := 0; i < numBase; i++ {
-		// Spread out but biased to center
-		// rand - 0.5 is -0.5 to 0.5.
-		// Cubing it biases towards 0.
 		r := (rand.Float64() - 0.5)
-		offset := (r * r * r * 4.0) * logLen * 0.8
+		// Spread across the hearth
+		offset := r * float64(hearthRight-hearthLeft) * 0.7
 		cx := centerX + offset
 		
-		// Very flat angle (-5 to 5 degrees)
 		angle := (rand.Float64() - 0.5) * 0.1
-		
 		l := logLen * (0.8 + rand.Float64()*0.4)
 		
 		x1 := cx - (math.Cos(angle) * l / 2.0)
@@ -161,33 +158,25 @@ func generateLogs() {
 		
 		logs = append(logs, Log{
 			x1: x1, y1: y1, x2: x2, y2: y2,
-			r: baseRadius * (1.0 + rand.Float64()*0.2),
+			r: baseRadius * (0.9 + rand.Float64()*0.2),
 			id: i + 1,
 		})
 	}
 	
-	// 2. Stacked Layer (Leaning upwards towards center)
-	numStack := 4 + rand.Intn(3)
+	// 2. Stacked Layer (Leaning upwards towards center, more logs)
+	numStack := 8 + rand.Intn(5)
 	for i := 0; i < numStack; i++ {
-		// Closer to center
 		r := (rand.Float64() - 0.5)
-		offset := r * logLen * 0.7
+		offset := r * float64(hearthRight-hearthLeft) * 0.6
 		cx := centerX + offset
 		
-		// Stacked on top
-		cy := bottomY - baseRadius * 2.2 - (rand.Float64() * baseRadius * 1.5)
+		cy := bottomY - baseRadius * 2.2 - (rand.Float64() * baseRadius * 3.0)
 		
-		// Inward leaning angle (Upwards towards center)
-		// offset < 0 (left): we want y2 (inner) < y1 (outer) -> angle < 0
-		// offset > 0 (right): we want y1 (inner) < y2 (outer) -> angle > 0
-		// Current offset/logLen is -0.5 to 0.5.
-		leanAmt := offset / (logLen * 0.5) 
-		angle := leanAmt * 0.4 // Max ~23 degrees
-		
-		// Add some randomness
+		leanAmt := offset / (float64(hearthRight-hearthLeft) * 0.5) 
+		angle := leanAmt * 0.4
 		angle += (rand.Float64() - 0.5) * 0.2
 		
-		l := logLen * (0.6 + rand.Float64()*0.4)
+		l := logLen * (0.7 + rand.Float64()*0.5)
 		
 		x1 := cx - (math.Cos(angle) * l / 2.0)
 		y1 := cy - (math.Sin(angle) * l / 2.0)
