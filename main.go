@@ -120,54 +120,121 @@ func resize() {
 func generateLogs() {
 	woodMap = make([]int, width*height)
 	
-	// Log settings
-	logRadius := float64(height) / 8.0
-	if logRadius < 2.0 { logRadius = 2.0 }
-	
 	centerX := float64(hearthLeft + hearthRight) / 2.0
 	bottomY := float64(height - 1)
 	
-	// Define logs (x, y, radius, id)
+	// Terminal character aspect ratio correction
+	// A character is roughly twice as tall as it is wide (pixels).
+	// To perform geometric checks (rotation), we treat Y as 2x units.
+	aspect := 2.0
+	
+	// Log dimensions (in character units)
+	// Length should be proportional to hearth width
+	logLen := float64(hearthRight - hearthLeft) / 2.5
+	if logLen < 5 { logLen = 5 }
+	
+	// Thickness
+	logThick := float64(height) / 8.0
+	if logThick < 2 { logThick = 2 }
+
 	type Log struct {
-		x, y, r float64
-		id      int
+		x, y   float64 // Center position
+		w, h   float64 // Width (length) and Height (thickness)
+		angle  float64 // Rotation in radians
+		id     int
 	}
 	
 	logs := []Log{}
 	
-	// Bottom row (3 logs)
-	// Spacing: 2 * radius * overlap
-	// X radius is roughly 2.0 * logRadius
-	rx := logRadius * 2.2
+	// Generate a "messy pile"
+	// 1. Base layer: randomly placed flat-ish logs
+	numBase := 3
+	for i := 0; i < numBase; i++ {
+		// Scatter X around center
+		// Normalized pos from -1 to 1
+		t := float64(i)/float64(numBase-1) - 0.5
+		x := centerX + t * logLen * 1.5
+		
+		// Randomize X slightly
+		x += (rand.Float64() - 0.5) * 5.0
+		
+		// Y is at bottom
+		y := bottomY - logThick*0.6
+		
+		// Angle: mostly flat (-15 to 15 degrees)
+		angle := (rand.Float64() - 0.5) * 0.5
+		
+		logs = append(logs, Log{
+			x: x, y: y, 
+			w: logLen * (0.8 + rand.Float64()*0.4), // Random length variation
+			h: logThick * (0.8 + rand.Float64()*0.4), 
+			angle: angle, 
+			id: i + 1,
+		})
+	}
 	
-	spacing := rx * 0.9
+	// 2. Leaning/Stacked logs
+	numStack := 4
+	for i := 0; i < numStack; i++ {
+		// Place these higher up and closer to center
+		x := centerX + (rand.Float64() - 0.5) * logLen
+		y := bottomY - logThick * 1.5 - (rand.Float64() * logThick * 2.0)
+		
+		// Steeper angles (-45 to 45 degrees, or even more)
+		angle := (rand.Float64() - 0.5) * math.Pi / 1.5
+		
+		// Ensure they lean *in* towards center?
+		// If x < center, lean right (angle > 0)?
+		// Let's just keep it random for "messy".
+		
+		logs = append(logs, Log{
+			x: x, y: y, 
+			w: logLen * (0.7 + rand.Float64()*0.5), 
+			h: logThick * (0.8 + rand.Float64()*0.4), 
+			angle: angle, 
+			id: numBase + i + 1,
+		})
+	}
 	
-	logs = append(logs, Log{x: centerX, y: bottomY - logRadius*0.8, r: logRadius, id: 1})
-	logs = append(logs, Log{x: centerX - spacing, y: bottomY - logRadius*0.6, r: logRadius, id: 2})
-	logs = append(logs, Log{x: centerX + spacing, y: bottomY - logRadius*0.6, r: logRadius, id: 3})
-	
-	// Middle row (2 logs)
-	logs = append(logs, Log{x: centerX - spacing*0.5, y: bottomY - logRadius*1.5, r: logRadius*0.9, id: 4})
-	logs = append(logs, Log{x: centerX + spacing*0.5, y: bottomY - logRadius*1.5, r: logRadius*0.9, id: 5})
-	
-	// Top row (1 log)
-	logs = append(logs, Log{x: centerX, y: bottomY - logRadius*2.3, r: logRadius*0.8, id: 6})
-	
-	// Render logs to woodMap
+	// Render logs
 	for y := 0; y < height; y++ {
 		for x := 0; x < width; x++ {
-			for _, l := range logs {
-				// Ellipse equation: (dx / rx)^2 + (dy / ry)^2 <= 1
-				// rx is width (cols), ry is height (rows)
-				// Visually 1 row = 2 cols roughly.
-				currentRx := l.r * 2.2
-				currentRy := l.r
+			// Check each log
+			// We iterate in reverse to let later logs draw on top (painter's algo)
+			for i := len(logs) - 1; i >= 0; i-- {
+				l := logs[i]
 				
-				nx := (float64(x) - l.x) / currentRx
-				ny := (float64(y) - l.y) / currentRy
+				// Transform point (x,y) to log local space
+				// 1. Translate
+				dx := float64(x) - l.x
+				dy := (float64(y) - l.y) * aspect // Scale Y for aspect ratio
 				
-				if nx*nx + ny*ny <= 1.0 {
+				// 2. Rotate by -angle
+				// x' = x cos t - y sin t
+				// y' = x sin t + y cos t
+				cosA := math.Cos(-l.angle)
+				sinA := math.Sin(-l.angle)
+				
+				localX := dx*cosA - dy*sinA
+				localY := dx*sinA + dy*cosA
+				
+				// 3. Check bounds (Rectangle)
+				// w is length (X in local), h is thickness (Y in local)
+				// But wait, w is screen X units. h is screen Y units * aspect?
+				// Let's define w and h in "screen units corrected for aspect"
+				// Actually simpler: w is "visual length", h is "visual thickness".
+				// Since we scaled dy by aspect, we are working in "pixel-ish" space where Y is compressed?
+				// No, we scaled UP dy. So we are working in "square pixel" space.
+				// So W and H should be in square pixels.
+				// Width in chars = l.w. Width in square pixels = l.w
+				// Height in chars = l.h. Height in square pixels = l.h * aspect
+				
+				halfW := l.w / 2.0
+				halfH := (l.h * aspect) / 2.0
+				
+				if math.Abs(localX) <= halfW && math.Abs(localY) <= halfH {
 					woodMap[y*width+x] = l.id
+					break // Found the top-most log for this pixel
 				}
 			}
 		}
