@@ -123,14 +123,13 @@ func generateLogs() {
 	centerX := float64(hearthLeft + hearthRight) / 2.0
 	bottomY := float64(height - 1)
 	
-	// Terminal aspect ratio correction
 	aspect := 2.0
 	
 	// Settings
-	baseRadius := float64(height) / 16.0
+	baseRadius := float64(height) / 22.0 // Small radius for detailed pile
 	if baseRadius < 1.5 { baseRadius = 1.5 }
 	
-	logLen := float64(hearthRight - hearthLeft) / 1.7
+	logLen := float64(hearthRight - hearthLeft) / 2.0
 	
 	type Log struct {
 		x1, y1, x2, y2 float64
@@ -140,26 +139,57 @@ func generateLogs() {
 	
 	logs := []Log{}
 	
-	// 1. Bottom Left Log (slightly angled)
-	logs = append(logs, Log{
-		x1: centerX - logLen*0.7, y1: bottomY - baseRadius*1.2,
-		x2: centerX - logLen*0.1, y2: bottomY - baseRadius*1.5,
-		r: baseRadius, id: 1,
-	})
+	// 1. Base Layer (Scatter flat logs)
+	numBase := 3
+	for i := 0; i < numBase; i++ {
+		// Spread out
+		offset := (rand.Float64() - 0.5) * logLen * 0.8
+		cx := centerX + offset
+		
+		// Very flat angle (-5 to 5 degrees)
+		angle := (rand.Float64() - 0.5) * 0.1
+		
+		l := logLen * (0.8 + rand.Float64()*0.4)
+		
+		x1 := cx - (math.Cos(angle) * l / 2.0)
+		y1 := bottomY - baseRadius*0.8 - (math.Sin(angle) * l / 2.0)
+		x2 := cx + (math.Cos(angle) * l / 2.0)
+		y2 := bottomY - baseRadius*0.8 + (math.Sin(angle) * l / 2.0)
+		
+		logs = append(logs, Log{
+			x1: x1, y1: y1, x2: x2, y2: y2,
+			r: baseRadius * (1.0 + rand.Float64()*0.2),
+			id: i + 1,
+		})
+	}
 	
-	// 2. Bottom Right Log (slightly angled)
-	logs = append(logs, Log{
-		x1: centerX + logLen*0.1, y1: bottomY - baseRadius*1.5,
-		x2: centerX + logLen*0.7, y2: bottomY - baseRadius*1.2,
-		r: baseRadius, id: 2,
-	})
-	
-	// 3. Top Center Log (resting across)
-	logs = append(logs, Log{
-		x1: centerX - logLen*0.4, y1: bottomY - baseRadius*2.5,
-		x2: centerX + logLen*0.4, y2: bottomY - baseRadius*2.8,
-		r: baseRadius * 0.9, id: 3,
-	})
+	// 2. Stacked Layer (Messy but horizontal-ish)
+	numStack := 4 + rand.Intn(2)
+	for i := 0; i < numStack; i++ {
+		// Closer to center
+		offset := (rand.Float64() - 0.5) * logLen * 0.6
+		cx := centerX + offset
+		
+		// Stacked on top
+		cy := bottomY - baseRadius * 2.5 - (rand.Float64() * baseRadius * 1.5)
+		
+		// Constrained angle: Max +/- 15 degrees (~0.26 rad)
+		// No vertical logs!
+		angle := (rand.Float64() - 0.5) * 0.5
+		
+		l := logLen * (0.6 + rand.Float64()*0.5)
+		
+		x1 := cx - (math.Cos(angle) * l / 2.0)
+		y1 := cy - (math.Sin(angle) * l / 2.0)
+		x2 := cx + (math.Cos(angle) * l / 2.0)
+		y2 := cy + (math.Sin(angle) * l / 2.0)
+		
+		logs = append(logs, Log{
+			x1: x1, y1: y1, x2: x2, y2: y2,
+			r: baseRadius * (0.8 + rand.Float64()*0.3),
+			id: numBase + i + 1,
+		})
+	}
 
 	// Render logs
 	for y := 0; y < height; y++ {
@@ -345,7 +375,6 @@ func drawFire() {
 func drawEnvironment() {
 	woodColor := tcell.NewRGBColor(101, 67, 33) // Deep Brown
 	darkWoodColor := tcell.NewRGBColor(60, 30, 10)
-	grateColor := tcell.NewRGBColor(40, 40, 40) // Dark Iron
 	
 	for y := 0; y < height; y++ {
 		for x := 0; x < width; x++ {
@@ -354,25 +383,7 @@ func drawEnvironment() {
 				logID = woodMap[y*width+x]
 			}
 			
-			// 1. Draw Grate/Andirons (Iron bars)
-			isGrate := false
-			if y >= height-int(float64(height)/5.0) {
-				// Vertical bars
-				if (x - hearthLeft) % (width/10) == 0 && x > hearthLeft && x < hearthRight {
-					isGrate = true
-				}
-				// Bottom horizontal bar
-				if y == height - 1 && x >= hearthLeft && x < hearthRight {
-					isGrate = true
-				}
-			}
-			
-			if isGrate {
-				screen.SetContent(x, y, '┃', nil, tcell.StyleDefault.Background(tcell.ColorBlack).Foreground(grateColor))
-				continue
-			}
-
-			// 2. Draw Wood
+			// Draw Wood
 			if logID > 0 {
 				noise := (x*57 + y*131) % 10
 				var style tcell.Style
@@ -387,7 +398,12 @@ func drawEnvironment() {
 				if noise == 0 { char = '░' }
 				
 				// Highlight top edge
-				if y > 0 && woodMap[(y-1)*width+x] == 0 {
+				if y > 0 && woodMap[(y-1)*width+x] != logID && woodMap[(y-1)*width+x] != 0 {
+				    // Edge between logs
+				    style = tcell.StyleDefault.Background(tcell.ColorBlack).Foreground(woodColor)
+				    char = '_'
+				} else if y > 0 && woodMap[(y-1)*width+x] == 0 {
+					// Top edge against air
 					style = style.Foreground(tcell.NewRGBColor(139, 69, 19))
 					char = '▄'
 				}
