@@ -235,6 +235,7 @@ func updateFire() {
 					fire[src-width] = 0
 				}
 			} else {
+				// Propagation with center-biased jitter
 				randIdx := rand.Intn(3) // 0, 1, 2
 				dstX := x - randIdx + 1
 				if dstX < 0 {
@@ -248,18 +249,21 @@ func updateFire() {
 					continue
 				}
 
-				decay := rand.Intn(2) // 0 or 1
+				// Base random decay
+				decay := rand.Intn(2)
 				
-				// Distance-based decay to create "peak" in middle
+				// Non-linear distance decay for a pointier look
+				// Using normDist^2 creates a sharp peak in the center
 				dist := math.Abs(float64(x - center))
 				normDist := dist / halfWidth
+				decay += int(normDist * normDist * 8.0)
 				
-				// Slightly increased decay compared to before to shrink fire
-				decay += int(normDist * 3.0)
-				
-				// General height control
-				if y < fireHeight/3 {
-					decay += 1
+				// Height-based decay (y=0 is top)
+				// Fire should taper as it rises
+				if y < fireHeight/2 {
+					// Use a gradual increase in decay as we approach the top
+					heightDecay := 1.0 - (float64(y) / (float64(fireHeight) / 2.0))
+					decay += int(heightDecay * 3.0)
 				}
 
 				newHeat := pixel - decay
@@ -273,43 +277,33 @@ func updateFire() {
 
 	// 2. Refuel from wood surface ONLY
 	for x := hearthLeft; x < hearthRight; x++ {
-		// Log height at this x
 		h := getLogHeight(x)
-		
-		// Fire ONLY comes from logs
 		if h <= 0 { continue }
 		
 		woodTopDist := h 
-		// Screen row for top of wood
 		screenY := height - 1 - woodTopDist
-		
-		// Fire grid row
 		fireY := screenY * 2
-		
-		// Add some random depth
-		fireY += rand.Intn(6)
+		fireY += rand.Intn(4)
 		
 		if fireY >= fireHeight { fireY = fireHeight - 1 }
 		if fireY < 0 { fireY = 0 }
 
 		idx := fireY * width + x
 		if idx >= 0 && idx < len(fire) {
-			r := rand.Intn(100)
-			heat := 36
-			
-			// Less uniform ignition
-			if r > 50 {
-				heat = 0 // Gap
-			} else if r > 20 {
-				heat = 36 // Hot spot
-			} else {
-				heat = 25 // Cooler spot
-			}
-			
-			// Always ignite center bottom more
+			// Center-biased ignition intensity
 			dist := math.Abs(float64(x - center))
-			if dist < 6 && rand.Intn(10) > 2 {
+			normDist := dist / halfWidth
+			
+			r := rand.Intn(100)
+			heat := 0
+			
+			// Higher intensity threshold near center
+			threshold := 30.0 + (normDist * 40.0) // 30% chance at center, 70% at edge
+			if float64(r) > threshold {
 				heat = 36
+				if normDist > 0.6 && r > 90 {
+					heat = 20 // Cool down edges
+				}
 			}
 			
 			if heat > 0 {
@@ -319,12 +313,12 @@ func updateFire() {
 	}
 	
 	// 3. Embers (Sparks)
-	if rand.Intn(100) < 10 { // Slightly reduced chance
+	if rand.Intn(100) < 12 {
 		rx := hearthLeft + rand.Intn(hearthRight - hearthLeft)
-		ry := (height / 2) * 2 + rand.Intn(20)
+		ry := (height / 2) * 2 + rand.Intn(15)
 		idx := ry * width + rx
 		if idx >= 0 && idx < len(fire) {
-			fire[idx] = 36 // Hot spark
+			fire[idx] = 36
 		}
 	}
 }
