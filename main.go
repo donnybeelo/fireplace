@@ -3,7 +3,6 @@ package main
 import (
 	"math"
 	"math/rand"
-	"sort"
 	"time"
 
 	"github.com/gdamore/tcell/v2"
@@ -98,14 +97,17 @@ func main() {
 			// Layered rendering
 			screen.Clear()
 			
-			// 1. Draw logs in the back half
+			// 1. Draw bricks and logs in the back
 			drawEnvironment(1, logCount/2)
 			
-			// 2. Draw fire (merges with back logs)
+			// 2. Draw fire
 			drawFire()
 			
-			// 3. Draw logs in the front half (on top of fire)
+			// 3. Draw logs in the front (on top of fire)
 			drawEnvironment(logCount/2+1, logCount)
+			
+			// 4. Draw iron grate
+			drawGrate()
 			
 			screen.Show()
 		}
@@ -121,8 +123,8 @@ func resize() {
 		woodHeight = 3
 	}
 	
-	// Hearth is centered, 90% of width (wider)
-	hearthWidth := int(float64(width) * 0.9)
+	// Hearth is centered, 70% of width (standard fireplace opening)
+	hearthWidth := int(float64(width) * 0.7)
 	hearthLeft = (width - hearthWidth) / 2
 	hearthRight = hearthLeft + hearthWidth
 	
@@ -138,65 +140,54 @@ func generateLogs() {
 	bottomY := float64(height - 1)
 	aspect := 2.0
 
-	// The central peak where sticks converge
-	peakX := centerX
-	peakY := bottomY - float64(height)/12.0
-	
-	// Base dimensions
-	baseRX := float64(hearthRight-hearthLeft) * 0.45
-	baseRY := float64(height) / 18.0
-	
-	// Thicker sticks for a less "goofy" look
-	baseRadius := float64(height) / 22.0 
+	// Traditional horizontal logs
+	baseRadius := float64(height) / 14.0
 	if baseRadius < 1.2 { baseRadius = 1.2 }
+	logLen := float64(hearthRight - hearthLeft) * 0.8
 
 	type Log struct {
 		x1, y1, x2, y2 float64
 		r              float64
-		depth          float64
 		id             int
 	}
 	
 	logs := []Log{}
-	numLogs := 25 + rand.Intn(10) // Fewer but chunkier sticks
 	
-	for i := 0; i < numLogs; i++ {
-		theta := rand.Float64() * 2.0 * math.Pi
-		dist := 0.1 + rand.Float64()*0.9
-		
-		x1 := centerX + baseRX * math.Cos(theta) * dist
-		y1 := (bottomY - baseRY) + baseRY * math.Sin(theta) * dist
-		
-		// Direct towards center peak with variance
-		x2 := peakX + (rand.Float64()-0.5)*15.0
-		y2 := peakY + (rand.Float64()-0.5)*8.0
-		
-		ext := 0.6 + rand.Float64()*0.6
-		dx, dy := x2-x1, y2-y1
-		x2 = x1 + dx*ext
-		y2 = y1 + dy*ext
-		
-		logs = append(logs, Log{
-			x1: x1, y1: y1, x2: x2, y2: y2,
-			r: baseRadius * (0.7 + rand.Float64()*0.6),
-			depth: y1,
-			id: i + 1,
-		})
-	}
-	
-	sort.Slice(logs, func(i, j int) bool {
-		return logs[i].depth < logs[j].depth
+	// 1. Back log (ID 1)
+	logs = append(logs, Log{
+		x1: centerX - logLen*0.4, y1: bottomY - baseRadius*1.8,
+		x2: centerX + logLen*0.4, y2: bottomY - baseRadius*1.8,
+		r: baseRadius, id: 1,
 	})
 	
+	// 2. Middle log (stacked slightly higher, ID 2)
+	logs = append(logs, Log{
+		x1: centerX - logLen*0.3, y1: bottomY - baseRadius*2.8,
+		x2: centerX + logLen*0.35, y2: bottomY - baseRadius*3.0,
+		r: baseRadius * 0.9, id: 2,
+	})
+	
+	// 3. Front log (Lower, ID 3)
+	logs = append(logs, Log{
+		x1: centerX - logLen*0.45, y1: bottomY - baseRadius*0.8,
+		x2: centerX + logLen*0.45, y2: bottomY - baseRadius*0.8,
+		r: baseRadius * 1.1, id: 3,
+	})
+	
+	// 4. Small top log (ID 4)
+	logs = append(logs, Log{
+		x1: centerX - logLen*0.1, y1: bottomY - baseRadius*4.0,
+		x2: centerX + logLen*0.2, y2: bottomY - baseRadius*4.2,
+		r: baseRadius * 0.7, id: 4,
+	})
+
 	logCount = len(logs)
-	for i := range logs {
-		logs[i].id = i + 1
-	}
 
 	for y := 0; y < height; y++ {
 		for x := 0; x < width; x++ {
-			for i := len(logs) - 1; i >= 0; i-- {
-				l := logs[i]
+			// Iterate in order so higher IDs overwrite? 
+			// We'll use the ID range in drawing to manage depth
+			for _, l := range logs {
 				px, py := float64(x), float64(y) * aspect
 				ax, ay := l.x1, l.y1 * aspect
 				bx, by := l.x2, l.y2 * aspect
@@ -211,7 +202,6 @@ func generateLogs() {
 				dx, dy := px - cx, py - cy
 				if dx*dx + dy*dy <= (l.r*aspect)*(l.r*aspect) {
 					woodMap[y*width+x] = l.id
-					break
 				}
 			}
 		}
@@ -386,15 +376,35 @@ func drawFire() {
 func drawEnvironment(minID, maxID int) {
 	woodColor := tcell.NewRGBColor(101, 67, 33) // Deep Brown
 	darkWoodColor := tcell.NewRGBColor(60, 30, 10)
+	brickColor := tcell.NewRGBColor(120, 40, 30)
+	mortarColor := tcell.NewRGBColor(60, 60, 60)
 	
 	for y := 0; y < height; y++ {
 		for x := 0; x < width; x++ {
+			// 1. Draw Brick Frame
+			if x < hearthLeft || x >= hearthRight {
+				// Simple brick pattern
+				isMortar := false
+				if y % 4 == 3 { isMortar = true }
+				rowBlock := y / 4
+				offset := (rowBlock % 2) * 4
+				if (x + offset) % 8 == 0 { isMortar = true }
+				
+				style := tcell.StyleDefault.Background(brickColor).Foreground(mortarColor)
+				char := ' '
+				if isMortar {
+					style = tcell.StyleDefault.Background(mortarColor)
+				}
+				screen.SetContent(x, y, char, nil, style)
+				continue
+			}
+
+			// 2. Draw Logs
 			logID := 0
 			if x >= 0 && x < width && y >= 0 && y < height {
 				logID = woodMap[y*width+x]
 			}
 			
-			// Only draw logs in the specified ID range
 			if logID >= minID && logID <= maxID {
 				noise := (x*57 + y*131) % 10
 				var style tcell.Style
@@ -405,22 +415,37 @@ func drawEnvironment(minID, maxID int) {
 				}
 				
 				char := ' '
-				// Sparse texture
 				if noise == 0 { char = '░' }
 				
-				// Highlight top edge
 				if y > 0 && woodMap[(y-1)*width+x] != logID && woodMap[(y-1)*width+x] != 0 {
-				    // Edge between logs
 				    style = tcell.StyleDefault.Background(tcell.ColorBlack).Foreground(woodColor)
 				    char = '_'
 				} else if y > 0 && woodMap[(y-1)*width+x] == 0 {
-					// Top edge against air
 					style = style.Foreground(tcell.NewRGBColor(139, 69, 19))
 					char = '▄'
 				}
 				
 				screen.SetContent(x, y, char, nil, style)
 			}
+		}
+	}
+}
+
+func drawGrate() {
+	grateColor := tcell.NewRGBColor(40, 40, 40)
+	style := tcell.StyleDefault.Background(tcell.ColorBlack).Foreground(grateColor)
+	
+	for x := hearthLeft + 2; x < hearthRight - 2; x++ {
+		// Bottom horizontal bar
+		screen.SetContent(x, height-1, '━', nil, style)
+		
+		// Vertical bars
+		if (x - hearthLeft) % 10 == 0 {
+			for y := height - 4; y < height; y++ {
+				screen.SetContent(x, y, '┃', nil, style)
+			}
+			// Top of vertical bar
+			screen.SetContent(x, height-5, '┳', nil, style)
 		}
 	}
 }
