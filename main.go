@@ -3,6 +3,7 @@ package main
 import (
 	"math"
 	"math/rand"
+	"sort"
 	"time"
 
 	"github.com/gdamore/tcell/v2"
@@ -140,54 +141,63 @@ func generateLogs() {
 	bottomY := float64(height - 1)
 	aspect := 2.0
 
-	// Traditional horizontal logs
-	baseRadius := float64(height) / 14.0
-	if baseRadius < 1.2 { baseRadius = 1.2 }
-	logLen := float64(hearthRight - hearthLeft) * 0.8
+	// The central peak where sticks converge
+	peakX := centerX
+	peakY := bottomY - float64(height)/10.0
+	
+	// Base dimensions (ellipse on the "ground")
+	baseRX := float64(hearthRight-hearthLeft) * 0.5
+	baseRY := float64(height) / 20.0 
+	
+	baseRadius := float64(height) / 40.0
+	if baseRadius < 0.6 { baseRadius = 0.6 }
 
 	type Log struct {
 		x1, y1, x2, y2 float64
 		r              float64
+		depth          float64 
 		id             int
 	}
 	
 	logs := []Log{}
+	numLogs := 60 + rand.Intn(20) 
 	
-	// 1. Back log (ID 1)
-	logs = append(logs, Log{
-		x1: centerX - logLen*0.4, y1: bottomY - baseRadius*1.8,
-		x2: centerX + logLen*0.4, y2: bottomY - baseRadius*1.8,
-		r: baseRadius, id: 1,
+	for i := 0; i < numLogs; i++ {
+		theta := rand.Float64() * 2.0 * math.Pi
+		dist := 0.2 + rand.Float64()*0.8
+		
+		x1 := centerX + baseRX * math.Cos(theta) * dist
+		y1 := (bottomY - baseRY) + baseRY * math.Sin(theta) * dist
+		
+		x2 := peakX + (rand.Float64()-0.5)*10.0
+		y2 := peakY + (rand.Float64()-0.5)*5.0
+		
+		ext := 0.7 + rand.Float64()*0.6
+		dx, dy := x2-x1, y2-y1
+		x2 = x1 + dx*ext
+		y2 = y1 + dy*ext
+		
+		logs = append(logs, Log{
+			x1: x1, y1: y1, x2: x2, y2: y2,
+			r: baseRadius * (0.6 + rand.Float64()*0.8),
+			depth: y1,
+			id: i + 1,
+		})
+	}
+	
+	sort.Slice(logs, func(i, j int) bool {
+		return logs[i].depth < logs[j].depth
 	})
 	
-	// 2. Middle log (stacked slightly higher, ID 2)
-	logs = append(logs, Log{
-		x1: centerX - logLen*0.3, y1: bottomY - baseRadius*2.8,
-		x2: centerX + logLen*0.35, y2: bottomY - baseRadius*3.0,
-		r: baseRadius * 0.9, id: 2,
-	})
-	
-	// 3. Front log (Lower, ID 3)
-	logs = append(logs, Log{
-		x1: centerX - logLen*0.45, y1: bottomY - baseRadius*0.8,
-		x2: centerX + logLen*0.45, y2: bottomY - baseRadius*0.8,
-		r: baseRadius * 1.1, id: 3,
-	})
-	
-	// 4. Small top log (ID 4)
-	logs = append(logs, Log{
-		x1: centerX - logLen*0.1, y1: bottomY - baseRadius*4.0,
-		x2: centerX + logLen*0.2, y2: bottomY - baseRadius*4.2,
-		r: baseRadius * 0.7, id: 4,
-	})
-
 	logCount = len(logs)
+	for i := range logs {
+		logs[i].id = i + 1
+	}
 
 	for y := 0; y < height; y++ {
 		for x := 0; x < width; x++ {
-			// Iterate in order so higher IDs overwrite? 
-			// We'll use the ID range in drawing to manage depth
-			for _, l := range logs {
+			for i := len(logs) - 1; i >= 0; i-- {
+				l := logs[i]
 				px, py := float64(x), float64(y) * aspect
 				ax, ay := l.x1, l.y1 * aspect
 				bx, by := l.x2, l.y2 * aspect
@@ -202,6 +212,7 @@ func generateLogs() {
 				dx, dy := px - cx, py - cy
 				if dx*dx + dy*dy <= (l.r*aspect)*(l.r*aspect) {
 					woodMap[y*width+x] = l.id
+					break
 				}
 			}
 		}
