@@ -123,16 +123,15 @@ func generateLogs() {
 	centerX := float64(hearthLeft + hearthRight) / 2.0
 	bottomY := float64(height - 1)
 	
-	// Terminal aspect ratio correction (Y is 2x visual height of X)
+	// Terminal aspect ratio correction
 	aspect := 2.0
 	
 	// Settings
-	// Reduce radius to make pile shorter (approx 1/18th of height instead of 1/10th)
-	baseRadius := float64(height) / 18.0
+	// Keep radius small for a low pile
+	baseRadius := float64(height) / 20.0
 	if baseRadius < 1.5 { baseRadius = 1.5 }
 	
-	// Make logs slightly longer to compensate for thinness
-	logLen := float64(hearthRight - hearthLeft) / 1.6
+	logLen := float64(hearthRight - hearthLeft) / 2.0
 	
 	type Log struct {
 		x1, y1, x2, y2 float64 // Endpoints
@@ -142,42 +141,59 @@ func generateLogs() {
 	
 	logs := []Log{}
 	
-	// 1. Base Logs (Horizontal-ish) holding the structure
-	// Back log
-	logs = append(logs, Log{
-		x1: centerX - logLen/2.0, y1: bottomY - baseRadius*2.2,
-		x2: centerX + logLen/2.0, y2: bottomY - baseRadius*2.2,
-		r: baseRadius * 1.1, id: 1,
-	})
+	// Randomize logic
+	// 1. Base logs (2-3 logs)
+	numBase := 2 + rand.Intn(2)
+	for i := 0; i < numBase; i++ {
+		// Scatter around center
+		offset := (rand.Float64() - 0.5) * logLen * 0.5
+		cx := centerX + offset
+		
+		// Angle: mostly horizontal (-10 to 10 degrees)
+		angle := (rand.Float64() - 0.5) * 0.3
+		
+		// Length
+		l := logLen * (0.8 + rand.Float64()*0.4)
+		
+		// Endpoints
+		x1 := cx - (math.Cos(angle) * l / 2.0)
+		y1 := bottomY - baseRadius*0.8 - (math.Sin(angle) * l / 2.0)
+		x2 := cx + (math.Cos(angle) * l / 2.0)
+		y2 := bottomY - baseRadius*0.8 + (math.Sin(angle) * l / 2.0)
+		
+		logs = append(logs, Log{
+			x1: x1, y1: y1, x2: x2, y2: y2,
+			r: baseRadius * (0.9 + rand.Float64()*0.2),
+			id: i + 1,
+		})
+	}
 	
-	// Front log (Lower)
-	logs = append(logs, Log{
-		x1: centerX - logLen/2.0, y1: bottomY - baseRadius*0.8,
-		x2: centerX + logLen/2.0, y2: bottomY - baseRadius*0.8,
-		r: baseRadius, id: 2,
-	})
-	
-	// 2. Cross logs (resting on top)
-	// Left leaning in
-	logs = append(logs, Log{
-		x1: centerX - logLen*0.4, y1: bottomY - baseRadius*1.5, // Back-ish
-		x2: centerX + logLen*0.1, y2: bottomY - baseRadius*3.0, // Front-ish/Top
-		r: baseRadius * 0.9, id: 3,
-	})
-	
-	// Right leaning in (crossing the left one)
-	logs = append(logs, Log{
-		x1: centerX + logLen*0.4, y1: bottomY - baseRadius*1.5,
-		x2: centerX - logLen*0.2, y2: bottomY - baseRadius*3.5, // Higher
-		r: baseRadius * 0.8, id: 4,
-	})
-	
-	// Top log (smaller)
-	logs = append(logs, Log{
-		x1: centerX - logLen*0.2, y1: bottomY - baseRadius*3.8,
-		x2: centerX + logLen*0.2, y2: bottomY - baseRadius*3.6,
-		r: baseRadius * 0.7, id: 5,
-	})
+	// 2. Leaning logs (3-4 logs)
+	numLean := 3 + rand.Intn(2)
+	for i := 0; i < numLean; i++ {
+		// Random position
+		offset := (rand.Float64() - 0.5) * logLen * 0.8
+		cx := centerX + offset
+		
+		// Higher up
+		cy := bottomY - baseRadius * 2.0 - (rand.Float64() * baseRadius)
+		
+		// Random angle: steeper (-45 to 45 degrees)
+		angle := (rand.Float64() - 0.5) * 2.0
+		
+		l := logLen * (0.7 + rand.Float64()*0.5)
+		
+		x1 := cx - (math.Cos(angle) * l / 2.0)
+		y1 := cy - (math.Sin(angle) * l / 2.0)
+		x2 := cx + (math.Cos(angle) * l / 2.0)
+		y2 := cy + (math.Sin(angle) * l / 2.0)
+		
+		logs = append(logs, Log{
+			x1: x1, y1: y1, x2: x2, y2: y2,
+			r: baseRadius * (0.8 + rand.Float64()*0.3),
+			id: numBase + i + 1,
+		})
+	}
 
 	// Render Capsule SDF
 	for y := 0; y < height; y++ {
@@ -199,43 +215,19 @@ func generateLogs() {
 				apx, apy := px - ax, py - ay
 				
 				// Project AP onto AB to find t
-				// t = dot(AP, AB) / dot(AB, AB)
 				lenSq := abx*abx + aby*aby
 				t := (apx*abx + apy*aby) / lenSq
 				
-				// Clamp t to segment [0, 1]
 				if t < 0 { t = 0 }
 				if t > 1 { t = 1 }
 				
-				// Closest point on segment
+				// Closest point
 				cx := ax + t*abx
 				cy := ay + t*aby
 				
-				// Distance P to C
+				// Distance
 				dx, dy := px - cx, py - cy
 				distSq := dx*dx + dy*dy
-				
-				// Check radius (visual radius = l.r * 2.0 approx in X units?)
-				// Using simple pixel units relative to X
-				// l.r is in "rows" roughly in previous logic? 
-				// Let's assume l.r is in X-pixels
-				// In previous logic: aspect=2.0 meant Y coords were doubled.
-				// So l.r should be comparable to X units.
-				// Radius check:
-				// Visual width of log is 2*r.
-				
-				// Adjust radius for aspect? No, circle in this transformed space is an ellipse in screen space?
-				// We scaled Y by aspect. So a circle in (x, y*aspect) space is a circle.
-				// In screen space (x, y), it's squashed vertically if aspect > 1.
-				// Actually, we want round logs.
-				// If we calculate dist in "square pixel space" (which we did by scaling y),
-				// then checking against r^2 implies a sphere/cylinder.
-				// In screen space, this will look correct (round cross section).
-				
-				// Radius scaling: baseRadius was defined as height/10.
-				// height is rows. Y*aspect is "pixel rows".
-				// So radius should be scaled by aspect?
-				// baseRadius (rows) * aspect = baseRadius (pixels).
 				
 				rPix := l.r * aspect
 				
@@ -247,7 +239,6 @@ func generateLogs() {
 		}
 	}
 }
-
 func initFire() {
 	fire = make([]int, width*fireHeight)
 }
