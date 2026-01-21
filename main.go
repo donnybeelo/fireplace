@@ -3,6 +3,7 @@ package main
 import (
 	"math"
 	"math/rand"
+	"sort"
 	"time"
 
 	"github.com/gdamore/tcell/v2"
@@ -119,90 +120,76 @@ func resize() {
 
 func generateLogs() {
 	woodMap = make([]int, width*height)
-	
 	centerX := float64(hearthLeft + hearthRight) / 2.0
 	bottomY := float64(height - 1)
-	
-	targetX := centerX
-	targetY := bottomY - float64(height)/12.0 
-	
 	aspect := 2.0
+
+	// The central peak where sticks converge
+	peakX := centerX
+	peakY := bottomY - float64(height)/10.0
 	
-	baseRadius := float64(height) / 25.0
-	if baseRadius < 1.0 { baseRadius = 1.0 }
+	// Base dimensions (ellipse on the "ground")
+	baseRX := float64(hearthRight-hearthLeft) * 0.4
+	baseRY := float64(height) / 25.0 // Shallow for depth projection
 	
-	logLen := float64(hearthRight - hearthLeft) / 3.0
-	
+	baseRadius := float64(height) / 35.0 // Thinner "sticks"
+	if baseRadius < 0.7 { baseRadius = 0.7 }
+
 	type Log struct {
 		x1, y1, x2, y2 float64
 		r              float64
+		depth          float64 // Bottom Y-coord for painter's algorithm
 		id             int
 	}
 	
 	logs := []Log{}
+	numLogs := 35 + rand.Intn(15) // Many sticks
 	
-	// 1. Edge logs (Base of the pile)
-	numEdge := 12 + rand.Intn(6)
-	for i := 0; i < numEdge; i++ {
-		var x1 float64
-		if rand.Float64() < 0.5 {
-			x1 = float64(hearthLeft) + rand.Float64()*float64(hearthRight-hearthLeft)*0.3
-		} else {
-			x1 = float64(hearthRight) - rand.Float64()*float64(hearthRight-hearthLeft)*0.3
-		}
+	for i := 0; i < numLogs; i++ {
+		// Random angle around the center for the base point
+		theta := rand.Float64() * 2.0 * math.Pi
 		
-		y1 := bottomY - rand.Float64()*baseRadius
-		dx := targetX - x1
-		dy := targetY - y1 
-		angle := math.Atan2(dy, dx)
-		angle += (rand.Float64() - 0.5) * 0.4
+		// Distance from center at base (with some randomization)
+		dist := 0.4 + rand.Float64()*0.6
 		
-		if angle > 0 { angle = -angle }
+		// Starting point (Ground)
+		x1 := centerX + baseRX * math.Cos(theta) * dist
+		y1 := (bottomY - baseRY) + baseRY * math.Sin(theta) * dist
 		
-		if x1 < targetX {
-			if angle < -0.8 { angle = -0.8 }
-			if angle > -0.1 { angle = -0.1 }
-		} else {
-			if angle > -math.Pi+0.8 { angle = -math.Pi + 0.8 }
-			if angle < -math.Pi+0.1 { angle = -math.Pi + 0.1 }
-		}
+		// Peak point (where they meet)
+		// Pass through a small jittered volume at the peak
+		x2 := peakX + (rand.Float64()-0.5)*6.0
+		y2 := peakY + (rand.Float64()-0.5)*3.0
 		
-		l := logLen * (0.6 + rand.Float64()*0.4)
-		x2 := x1 + math.Cos(angle)*l
-		y2 := y1 + math.Sin(angle)*l
+		// For a "dropped" look, extend some sticks slightly past the peak
+		ext := 0.8 + rand.Float64()*0.5
+		dx, dy := x2-x1, y2-y1
+		x2 = x1 + dx*ext
+		y2 = y1 + dy*ext
 		
 		logs = append(logs, Log{
 			x1: x1, y1: y1, x2: x2, y2: y2,
-			r: baseRadius * (0.8 + rand.Float64()*0.4),
-			id: len(logs) + 1,
+			r: baseRadius * (0.6 + rand.Float64()*0.8),
+			depth: y1, // Larger y1 means closer to viewer
+			id: i + 1,
 		})
 	}
-
-	// 2. Center logs (Depth/3D effect - short and pointing UP)
-	numCenter := 6 + rand.Intn(4)
-	for i := 0; i < numCenter; i++ {
-		x1 := centerX + (rand.Float64()-0.5)*logLen*0.6
-		y1 := bottomY - rand.Float64()*baseRadius*0.5
-		
-		// Point mostly UP (-pi/2)
-		angle := -math.Pi/2.0 + (rand.Float64()-0.5)*0.5
-		
-		// Extremely short logs to look like ends pointing at viewer
-		l := logLen * (0.05 + rand.Float64()*0.1)
-		
-		x2 := x1 + math.Cos(angle)*l
-		y2 := y1 + math.Sin(angle)*l
-		
-		logs = append(logs, Log{
-			x1: x1, y1: y1, x2: x2, y2: y2,
-			r: baseRadius * (1.0 + rand.Float64()*0.3),
-			id: len(logs) + 1,
-		})
+	
+	// Sort logs by depth: back-most first, front-most last
+	sort.Slice(logs, func(i, j int) bool {
+		return logs[i].depth < logs[j].depth
+	})
+	
+	// Re-assign IDs for color variety after sort
+	for i := range logs {
+		logs[i].id = i + 1
 	}
 
 	// Render logs
 	for y := 0; y < height; y++ {
 		for x := 0; x < width; x++ {
+			// Painter's algorithm: find front-most log for this pixel
+			// Since logs are sorted back-to-front, the last one that matches is front-most.
 			for i := len(logs) - 1; i >= 0; i-- {
 				l := logs[i]
 				px, py := float64(x), float64(y) * aspect
