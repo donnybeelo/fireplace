@@ -140,72 +140,61 @@ func generateLogs() {
 
 	// The central peak where sticks converge
 	peakX := centerX
-	peakY := bottomY - float64(height)/10.0
+	peakY := bottomY - float64(height)/12.0
 	
-	// Base dimensions (ellipse on the "ground")
-	// Cover more width (0.5 * width = full width)
-	baseRX := float64(hearthRight-hearthLeft) * 0.5
-	baseRY := float64(height) / 20.0 
+	// Base dimensions
+	baseRX := float64(hearthRight-hearthLeft) * 0.45
+	baseRY := float64(height) / 18.0
 	
-	baseRadius := float64(height) / 40.0 // Slightly thinner for more sticks
-	if baseRadius < 0.6 { baseRadius = 0.6 }
+	// Thicker sticks for a less "goofy" look
+	baseRadius := float64(height) / 22.0 
+	if baseRadius < 1.2 { baseRadius = 1.2 }
 
 	type Log struct {
 		x1, y1, x2, y2 float64
 		r              float64
-		depth          float64 
+		depth          float64
 		id             int
 	}
 	
 	logs := []Log{}
-	numLogs := 60 + rand.Intn(20) // significantly more sticks
-	logCount = numLogs
+	numLogs := 25 + rand.Intn(10) // Fewer but chunkier sticks
 	
 	for i := 0; i < numLogs; i++ {
-		// Random angle
 		theta := rand.Float64() * 2.0 * math.Pi
+		dist := 0.1 + rand.Float64()*0.9
 		
-		// Distance from center at base - use more spread
-		dist := 0.2 + rand.Float64()*0.8
-		
-		// Starting point (Ground)
 		x1 := centerX + baseRX * math.Cos(theta) * dist
 		y1 := (bottomY - baseRY) + baseRY * math.Sin(theta) * dist
 		
-		// Peak point
-		// Keep peak slightly more dispersed for a messy look
-		x2 := peakX + (rand.Float64()-0.5)*10.0
-		y2 := peakY + (rand.Float64()-0.5)*5.0
+		// Direct towards center peak with variance
+		x2 := peakX + (rand.Float64()-0.5)*15.0
+		y2 := peakY + (rand.Float64()-0.5)*8.0
 		
-		// Extend sticks past peak
-		ext := 0.7 + rand.Float64()*0.6
+		ext := 0.6 + rand.Float64()*0.6
 		dx, dy := x2-x1, y2-y1
 		x2 = x1 + dx*ext
 		y2 = y1 + dy*ext
 		
 		logs = append(logs, Log{
 			x1: x1, y1: y1, x2: x2, y2: y2,
-			r: baseRadius * (0.6 + rand.Float64()*0.8),
+			r: baseRadius * (0.7 + rand.Float64()*0.6),
 			depth: y1,
 			id: i + 1,
 		})
 	}
 	
-	// Sort logs by depth: back-most first, front-most last
 	sort.Slice(logs, func(i, j int) bool {
 		return logs[i].depth < logs[j].depth
 	})
 	
-	// Re-assign IDs for color variety after sort
+	logCount = len(logs)
 	for i := range logs {
 		logs[i].id = i + 1
 	}
 
-	// Render logs
 	for y := 0; y < height; y++ {
 		for x := 0; x < width; x++ {
-			// Painter's algorithm: find front-most log for this pixel
-			// Since logs are sorted back-to-front, the last one that matches is front-most.
 			for i := len(logs) - 1; i >= 0; i-- {
 				l := logs[i]
 				px, py := float64(x), float64(y) * aspect
@@ -233,29 +222,23 @@ func initFire() {
 }
 
 func updateFire() {
-	// Center calculation
 	halfWidth := float64(hearthRight - hearthLeft) / 2.0
 	t := float64(tick)
 
-	// Define 5 static heat sources across the hearth with fluctuating intensities
-	numPeaks := 5
+	// Use more heat sources for a smoother, less "finned" look
+	numPeaks := 12
 	peakPos := make([]float64, numPeaks)
 	peakInt := make([]float64, numPeaks)
 	for i := 0; i < numPeaks; i++ {
 		f := float64(i) / float64(numPeaks-1)
-		// Fixed horizontal positions
 		peakPos[i] = float64(hearthLeft) + f*float64(hearthRight-hearthLeft)
 		
-		// Intensities fluctuate randomly over time
-		freq := 0.04 + float64(i)*0.025
-		phase := float64(i) * 1.7
-		// Combine sine wave with random jitter for "random height" effect
-		intensity := 0.5 + 0.5*math.Sin(t*freq+phase)
-		intensity *= 0.7 + rand.Float64()*0.6 // Add significant random variance
+		// Each source flickers at its own rate and phase
+		freq := 0.05 + math.Sin(float64(i)*1.3)*0.02
+		intensity := 0.6 + 0.4*math.Sin(t*freq + float64(i)*2.4)
+		intensity *= 0.8 + rand.Float64()*0.4
 		
-		if intensity > 1.0 { intensity = 1.0 }
-		if intensity < 0.3 { intensity = 0.3 }
-		peakInt[i] = intensity
+		peakInt[i] = clampFloat(intensity, 0.2, 1.0)
 	}
 
 	// 1. Propagate and decay
@@ -269,46 +252,34 @@ func updateFire() {
 					fire[src-width] = 0
 				}
 			} else {
-				// Minimal random jitter (no more coherent horizontal drifting)
-				drift := rand.Intn(3) - 1 // -1, 0, 1
+				// Independent jitter for each column
+				drift := rand.Intn(3) - 1
 				dstX := x + drift
-				
-				if dstX < 0 {
-					dstX = 0
-				} else if dstX >= width {
-					dstX = width - 1
-				}
+				if dstX < 0 { dstX = 0 } else if dstX >= width { dstX = width - 1 }
 
 				dstIndex := (y-1)*width + dstX
-				if dstIndex < 0 {
-					continue
-				}
+				if dstIndex < 0 { continue }
 
-				// Base random decay
 				decay := rand.Intn(2)
 				
-				// Multi-peak distance decay
-				// Find the nearest source and use its current intensity to scale height
-				minNormDist := 100.0
+				// Multi-peak blending
+				minNormDist := 10.0
 				for i := 0; i < numPeaks; i++ {
-					// Scale distance by peak intensity. Larger intensity = taller flame.
-					d := math.Abs(float64(x)-peakPos[i]) / (halfWidth * 0.25 * peakInt[i])
-					if d < minNormDist {
-						minNormDist = d
-					}
+					// Blend distance with intensity. Higher intensity = taller flame.
+					d := math.Abs(float64(x)-peakPos[i]) / (halfWidth * 0.2 * peakInt[i])
+					if d < minNormDist { minNormDist = d }
 				}
-				decay += int(minNormDist * minNormDist * 15.0)
+				// Sharper falloff outside the peak zones
+				decay += int(minNormDist * minNormDist * 18.0)
 				
-				// Height-based decay (y=0 is top)
+				// Height-based decay
 				if y < fireHeight/3 {
 					heightDecay := 1.0 - (float64(y) / (float64(fireHeight) / 3.0))
-					decay += int(heightDecay * 5.0)
+					decay += int(heightDecay * 6.0)
 				}
 
 				newHeat := pixel - decay
-				if newHeat < 0 {
-					newHeat = 0
-				}
+				if newHeat < 0 { newHeat = 0 }
 				fire[dstIndex] = newHeat
 			}
 		}
@@ -319,10 +290,10 @@ func updateFire() {
 		h := getLogHeight(x)
 		if h <= 0 { continue }
 		
-		// Influence fuel based on nearest peak's current intensity
+		// Find intensity influence for fueling
 		maxLocalInt := 0.0
 		for i := 0; i < numPeaks; i++ {
-			dist := math.Abs(float64(x)-peakPos[i]) / (halfWidth * 0.3)
+			dist := math.Abs(float64(x)-peakPos[i]) / (halfWidth * 0.25)
 			if dist < 1.0 {
 				local := peakInt[i] * (1.0 - dist)
 				if local > maxLocalInt { maxLocalInt = local }
@@ -340,8 +311,7 @@ func updateFire() {
 			idx := fireY * width + x
 			if idx >= 0 && idx < len(fire) {
 				r := rand.Intn(100)
-				// Refuel threshold depends on current peak intensity
-				threshold := 10.0 + (1.0 - maxLocalInt)*70.0
+				threshold := 10.0 + (1.0 - maxLocalInt)*80.0
 				if float64(r) > threshold {
 					fire[idx] = 36
 				}
@@ -349,15 +319,21 @@ func updateFire() {
 		}
 	}
 	
-	// 3. Embers (Sparks)
-	if rand.Intn(100) < 12 {
+	// 3. Embers
+	if rand.Intn(100) < 10 {
 		rx := hearthLeft + rand.Intn(hearthRight - hearthLeft)
-		ry := (height / 2) * 2 + rand.Intn(15)
+		ry := (height / 2) * 2 + rand.Intn(20)
 		idx := ry * width + rx
 		if idx >= 0 && idx < len(fire) {
 			fire[idx] = 36
 		}
 	}
+}
+
+func clampFloat(v, min, max float64) float64 {
+	if v < min { return min }
+	if v > max { return max }
+	return v
 }
 
 func drawFire() {
