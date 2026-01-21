@@ -226,15 +226,14 @@ func updateFire() {
 	halfWidth := float64(hearthRight - hearthLeft) / 2.0
 	t := float64(tick)
 
-	// Use more heat sources for a smoother, less "finned" look
-	numPeaks := 12
+	// Use slightly fewer but wider heat sources
+	numPeaks := 8
 	peakPos := make([]float64, numPeaks)
 	peakInt := make([]float64, numPeaks)
 	for i := 0; i < numPeaks; i++ {
 		f := float64(i) / float64(numPeaks-1)
 		peakPos[i] = float64(hearthLeft) + f*float64(hearthRight-hearthLeft)
 		
-		// Each source flickers at its own rate and phase
 		freq := 0.05 + math.Sin(float64(i)*1.3)*0.02
 		intensity := 0.6 + 0.4*math.Sin(t*freq + float64(i)*2.4)
 		intensity *= 0.8 + rand.Float64()*0.4
@@ -253,8 +252,8 @@ func updateFire() {
 					fire[src-width] = 0
 				}
 			} else {
-				// Independent jitter for each column
-				drift := rand.Intn(3) - 1
+				// Increased horizontal jitter for wider licks
+				drift := rand.Intn(5) - 2 // -2, -1, 0, 1, 2
 				dstX := x + drift
 				if dstX < 0 { dstX = 0 } else if dstX >= width { dstX = width - 1 }
 
@@ -263,20 +262,18 @@ func updateFire() {
 
 				decay := rand.Intn(2)
 				
-				// Multi-peak blending
+				// Reduced multiplier from 18.0 to 10.0 for wider licks
 				minNormDist := 10.0
 				for i := 0; i < numPeaks; i++ {
-					// Blend distance with intensity. Higher intensity = taller flame.
-					d := math.Abs(float64(x)-peakPos[i]) / (halfWidth * 0.2 * peakInt[i])
+					d := math.Abs(float64(x)-peakPos[i]) / (halfWidth * 0.3 * peakInt[i])
 					if d < minNormDist { minNormDist = d }
 				}
-				// Sharper falloff outside the peak zones
-				decay += int(minNormDist * minNormDist * 18.0)
+				decay += int(minNormDist * minNormDist * 10.0)
 				
 				// Height-based decay
 				if y < fireHeight/3 {
 					heightDecay := 1.0 - (float64(y) / (float64(fireHeight) / 3.0))
-					decay += int(heightDecay * 6.0)
+					decay += int(heightDecay * 5.0)
 				}
 
 				newHeat := pixel - decay
@@ -291,10 +288,9 @@ func updateFire() {
 		h := getLogHeight(x)
 		if h <= 0 { continue }
 		
-		// Find intensity influence for fueling
 		maxLocalInt := 0.0
 		for i := 0; i < numPeaks; i++ {
-			dist := math.Abs(float64(x)-peakPos[i]) / (halfWidth * 0.25)
+			dist := math.Abs(float64(x)-peakPos[i]) / (halfWidth * 0.4) // Wider influence
 			if dist < 1.0 {
 				local := peakInt[i] * (1.0 - dist)
 				if local > maxLocalInt { maxLocalInt = local }
@@ -312,7 +308,7 @@ func updateFire() {
 			idx := fireY * width + x
 			if idx >= 0 && idx < len(fire) {
 				r := rand.Intn(100)
-				threshold := 10.0 + (1.0 - maxLocalInt)*80.0
+				threshold := 10.0 + (1.0 - maxLocalInt)*70.0 // More permissive fueling
 				if float64(r) > threshold {
 					fire[idx] = 36
 				}
