@@ -123,13 +123,12 @@ func generateLogs() {
 	centerX := float64(hearthLeft + hearthRight) / 2.0
 	bottomY := float64(height - 1)
 	
-	// Target point: lower it significantly to prevent vertical leaning
+	// Target point for logs to lean towards
 	targetX := centerX
-	targetY := bottomY - float64(height)/15.0 
+	targetY := bottomY - float64(height)/12.0 
 	
 	aspect := 2.0
 	
-	// Settings
 	baseRadius := float64(height) / 25.0
 	if baseRadius < 1.0 { baseRadius = 1.0 }
 	
@@ -142,37 +141,47 @@ func generateLogs() {
 	}
 	
 	logs := []Log{}
-	numLogs := 15 + rand.Intn(8) // Slightly fewer logs for clarity
+	numLogs := 15 + rand.Intn(8)
 	
 	for i := 0; i < numLogs; i++ {
-		// Starting point: biased towards the outer edges of the hearth to avoid vertical slopes
+		// Starting point: biased towards edges
 		var x1 float64
 		if rand.Float64() < 0.5 {
-			// Left side
-			x1 = float64(hearthLeft) + rand.Float64()*float64(hearthRight-hearthLeft)*0.4
+			x1 = float64(hearthLeft) + rand.Float64()*float64(hearthRight-hearthLeft)*0.3
 		} else {
-			// Right side
-			x1 = float64(hearthRight) - rand.Float64()*float64(hearthRight-hearthLeft)*0.4
+			x1 = float64(hearthRight) - rand.Float64()*float64(hearthRight-hearthLeft)*0.3
 		}
 		
 		y1 := bottomY - rand.Float64()*baseRadius
 		
-		// Direction towards target center
-		angle := math.Atan2(targetY - y1, targetX - x1)
+		// Vector to target
+		dx := targetX - x1
+		dy := targetY - y1 // This will be negative (upwards)
 		
-		// Add variance but clamp it to stay horizontal-ish
+		// Base angle towards target
+		angle := math.Atan2(dy, dx)
+		
+		// Add variance
 		angle += (rand.Float64() - 0.5) * 0.4
 		
-		// Clamp angle to avoid verticality (no steeper than ~40 degrees)
-		if x1 < targetX {
-			if angle < -0.7 { angle = -0.7 }
-			if angle > 0.3 { angle = 0.3 }
-		} else {
-			if angle > math.Pi+0.7 { angle = math.Pi + 0.7 }
-			if angle < math.Pi-0.7 { angle = math.Pi - 0.7 }
+		// Ensure it points UPWARDS (Sin(angle) must be negative)
+		// Coordinate system: 0 is right, pi/2 is down, -pi/2 is up, pi is left.
+		if angle > 0 {
+			// If it's pointing down, flip it up
+			angle = -angle
 		}
 		
-		// End point
+		// Clamp to avoid extreme verticality
+		// Stay within [-0.8, -0.1] for left side logs (pointing right-up)
+		// Stay within [-math.Pi+0.1, -math.Pi+0.8] for right side logs (pointing left-up)
+		if x1 < targetX {
+			if angle < -0.8 { angle = -0.8 }
+			if angle > -0.1 { angle = -0.1 }
+		} else {
+			if angle > -math.Pi+0.8 { angle = -math.Pi + 0.8 }
+			if angle < -math.Pi+0.1 { angle = -math.Pi + 0.1 }
+		}
+		
 		l := logLen * (0.6 + rand.Float64()*0.4)
 		x2 := x1 + math.Cos(angle)*l
 		y2 := y1 + math.Sin(angle)*l
@@ -187,7 +196,6 @@ func generateLogs() {
 	// Render logs
 	for y := 0; y < height; y++ {
 		for x := 0; x < width; x++ {
-			// Painter's algorithm
 			for i := len(logs) - 1; i >= 0; i-- {
 				l := logs[i]
 				px, py := float64(x), float64(y) * aspect
