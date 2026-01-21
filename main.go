@@ -123,7 +123,6 @@ func generateLogs() {
 	centerX := float64(hearthLeft + hearthRight) / 2.0
 	bottomY := float64(height - 1)
 	
-	// Target point for logs to lean towards
 	targetX := centerX
 	targetY := bottomY - float64(height)/12.0 
 	
@@ -141,10 +140,10 @@ func generateLogs() {
 	}
 	
 	logs := []Log{}
-	numLogs := 15 + rand.Intn(8)
 	
-	for i := 0; i < numLogs; i++ {
-		// Starting point: biased towards edges
+	// 1. Edge logs (Base of the pile)
+	numEdge := 12 + rand.Intn(6)
+	for i := 0; i < numEdge; i++ {
 		var x1 float64
 		if rand.Float64() < 0.5 {
 			x1 = float64(hearthLeft) + rand.Float64()*float64(hearthRight-hearthLeft)*0.3
@@ -153,27 +152,13 @@ func generateLogs() {
 		}
 		
 		y1 := bottomY - rand.Float64()*baseRadius
-		
-		// Vector to target
 		dx := targetX - x1
-		dy := targetY - y1 // This will be negative (upwards)
-		
-		// Base angle towards target
+		dy := targetY - y1 
 		angle := math.Atan2(dy, dx)
-		
-		// Add variance
 		angle += (rand.Float64() - 0.5) * 0.4
 		
-		// Ensure it points UPWARDS (Sin(angle) must be negative)
-		// Coordinate system: 0 is right, pi/2 is down, -pi/2 is up, pi is left.
-		if angle > 0 {
-			// If it's pointing down, flip it up
-			angle = -angle
-		}
+		if angle > 0 { angle = -angle }
 		
-		// Clamp to avoid extreme verticality
-		// Stay within [-0.8, -0.1] for left side logs (pointing right-up)
-		// Stay within [-math.Pi+0.1, -math.Pi+0.8] for right side logs (pointing left-up)
 		if x1 < targetX {
 			if angle < -0.8 { angle = -0.8 }
 			if angle > -0.1 { angle = -0.1 }
@@ -189,7 +174,29 @@ func generateLogs() {
 		logs = append(logs, Log{
 			x1: x1, y1: y1, x2: x2, y2: y2,
 			r: baseRadius * (0.8 + rand.Float64()*0.4),
-			id: i + 1,
+			id: len(logs) + 1,
+		})
+	}
+
+	// 2. Center logs (Depth/3D effect - short and pointing UP)
+	numCenter := 6 + rand.Intn(4)
+	for i := 0; i < numCenter; i++ {
+		x1 := centerX + (rand.Float64()-0.5)*logLen*0.6
+		y1 := bottomY - rand.Float64()*baseRadius*0.5
+		
+		// Point mostly UP (-pi/2)
+		angle := -math.Pi/2.0 + (rand.Float64()-0.5)*0.5
+		
+		// Very short logs
+		l := logLen * (0.2 + rand.Float64()*0.2)
+		
+		x2 := x1 + math.Cos(angle)*l
+		y2 := y1 + math.Sin(angle)*l
+		
+		logs = append(logs, Log{
+			x1: x1, y1: y1, x2: x2, y2: y2,
+			r: baseRadius * (1.0 + rand.Float64()*0.3),
+			id: len(logs) + 1,
 		})
 	}
 
