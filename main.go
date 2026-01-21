@@ -24,13 +24,13 @@ var (
 	logCount    int         // Number of logs generated
 )
 
-// Doom fire palette definition (RGB) - Cleaned to remove all yellow/white
+// Doom fire palette definition (RGB) - Removed white and very light yellow
 var palette = []uint32{
 	0x070707, 0x1F0707, 0x2F0F07, 0x470F07, 0x571707, 0x671F07, 0x771F07, 0x8F2707,
-	0x9F2F07, 0xAF3F07, 0xBF4707, 0xC74707, 0xDF4F07, 0xAF3F07, 0xAF3F07, 0xAF3F07,
-	0xAF3F07, 0xAF3F07, 0xAF3F07, 0xAF3F07, 0xAF3F07, 0xAF3F07, 0xAF3F07, 0xAF3F07,
-	0xAF3F07, 0xAF3F07, 0xAF3F07, 0xAF3F07, 0xAF3F07, 0xAF3F07, 0xAF3F07, 0xAF3F07,
-	0xAF3F07, 0xAF3F07, 0xAF3F07, 0xAF3F07,
+	0x9F2F07, 0xAF3F07, 0xBF4707, 0xC74707, 0xDF4F07, 0xDF5707, 0xDF5707, 0xD75F07,
+	0xD75F07, 0xD7670F, 0xCF6F0F, 0xCF770F, 0xCF7F0F, 0xCF8717, 0xC78717, 0xC78F17,
+	0xC7971F, 0xBF9F1F, 0xBF9F1F, 0xBFA727, 0xBFA727, 0xBFAF2F, 0xB7B72F, 0xB7B737,
+	0xC78717, 0xC78717, 0xC78717, 0xC78717,
 }
 
 func init() {
@@ -300,16 +300,21 @@ func drawFire() {
 				continue
 			}
 
-			// Get existing background (logs or black)
+			// Get existing content (the back logs) to merge with fire
 			_, _, existingStyle, _ := screen.GetContent(x, y)
-			_, existingBg, _ := existingStyle.Decompose()
+			existingFg, existingBg, _ := existingStyle.Decompose()
 
 			c1 := colors[clamp(heat1)]
 			c2 := colors[clamp(heat2)]
 
-			// If a half-block has no fire, use the existing background color
+			// If a half-block has no fire, keep the existing log color
+			// Note: logs are drawn using both Fg and Bg depending on texture.
+			// To simplify, we'll use the background color as the "log color".
 			if heat1 == 0 {
-				c1 = existingBg
+				c1 = existingFg // Often logs use foreground for highlights
+				if existingFg == tcell.ColorWhite || existingFg == tcell.ColorBlack {
+					c1 = existingBg
+				}
 			}
 			if heat2 == 0 {
 				c2 = existingBg
