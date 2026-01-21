@@ -328,9 +328,6 @@ func drawFire() {
 }
 
 func drawEnvironment(minID, maxID int) {
-	woodColor := tcell.NewRGBColor(101, 67, 33) // Deep Brown
-	darkWoodColor := tcell.NewRGBColor(60, 30, 10)
-	
 	for y := 0; y < height; y++ {
 		for x := 0; x < width; x++ {
 			logID := 0
@@ -339,28 +336,48 @@ func drawEnvironment(minID, maxID int) {
 			}
 			
 			if logID >= minID && logID <= maxID {
+				// Calculate depth factor (0.0 back to 1.0 front)
+				depth := float64(logID) / float64(logCount)
+				
+				// Base log color ( Peru-ish to SaddleBrown-ish )
+				r := int32(60 + depth*100)
+				g := int32(30 + depth*60)
+				b := int32(10 + depth*25)
+				
+				baseColor := tcell.NewRGBColor(r, g, b)
+				darkColor := tcell.NewRGBColor(r/2, g/2, b/2)
+				
 				noise := (x*57 + y*131) % 10
 				var style tcell.Style
+				
+				// Simple shading based on noise
 				if noise > 7 {
-					style = tcell.StyleDefault.Background(darkWoodColor).Foreground(woodColor)
+					style = tcell.StyleDefault.Background(darkColor).Foreground(baseColor)
 				} else {
-					style = tcell.StyleDefault.Background(woodColor).Foreground(darkWoodColor)
+					style = tcell.StyleDefault.Background(baseColor).Foreground(darkColor)
 				}
 				
 				char := ' '
 				
-				if y > 0 && woodMap[(y-1)*width+x] != logID && woodMap[(y-1)*width+x] != 0 {
-				    style = tcell.StyleDefault.Background(tcell.ColorBlack).Foreground(woodColor)
-				    char = '_'
-				} else if y > 0 && woodMap[(y-1)*width+x] == 0 {
-					style = style.Background(tcell.NewRGBColor(139, 69, 19))
-					char = ' '
+				// Highlight top edge with a brighter color instead of characters
+				if y > 0 && woodMap[(y-1)*width+x] != logID {
+					// Pixel above is empty or a different log
+					highlightR := clampFloat32(r+30, 0, 255)
+					highlightG := clampFloat32(g+20, 0, 255)
+					highlightB := clampFloat32(b+10, 0, 255)
+					style = style.Background(tcell.NewRGBColor(int32(highlightR), int32(highlightG), int32(highlightB)))
 				}
 				
 				screen.SetContent(x, y, char, nil, style)
 			}
 		}
 	}
+}
+
+func clampFloat32(v, min, max int32) int32 {
+	if v < min { return min }
+	if v > max { return max }
+	return v
 }
 
 func clamp(h int) int {
