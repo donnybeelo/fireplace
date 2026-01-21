@@ -18,19 +18,19 @@ var (
 	hearthRight int // Right boundary of the fireplace
 	screen      tcell.Screen
 	fire        []int
-	woodMap     []int       // Stores log ID for each pixel (0 = empty)
+	woodMap     []int // Stores log ID for each pixel (0 = empty)
 	colors      []tcell.Color
-	tick        int         // Frame counter for animations
-	logCount    int         // Number of logs generated
+	tick        int // Frame counter for animations
+	logCount    int // Number of logs generated
 )
 
-// Doom fire palette definition (RGB) - Removed white and very light yellow
+// Doom fire palette definition (RGB) - No white/yellow
 var palette = []uint32{
 	0x070707, 0x1F0707, 0x2F0F07, 0x470F07, 0x571707, 0x671F07, 0x771F07, 0x8F2707,
 	0x9F2F07, 0xAF3F07, 0xBF4707, 0xC74707, 0xDF4F07, 0xDF5707, 0xDF5707, 0xD75F07,
 	0xD75F07, 0xD7670F, 0xCF6F0F, 0xCF770F, 0xCF7F0F, 0xCF8717, 0xC78717, 0xC78F17,
 	0xC7971F, 0xBF9F1F, 0xBF9F1F, 0xBFA727, 0xBFA727, 0xBFAF2F, 0xB7B72F, 0xB7B737,
-	0xC78717, 0xC78717, 0xC78717, 0xC78717,
+	0xAF3F07, 0xAF3F07, 0xAF3F07, 0xAF3F07,
 }
 
 func init() {
@@ -94,14 +94,16 @@ func main() {
 		case <-ticker.C:
 			tick++
 			updateFire()
-			
+
+			screen.SetStyle(tcell.StyleDefault.Background(tcell.ColorBlack).Foreground(tcell.ColorBlack))
 			screen.Clear()
-			
-			// Layered rendering
-			drawEnvironment(1, logCount/2)
-			drawFire()
-			drawEnvironment(logCount/2+1, logCount)
-			
+
+			// 1. Draw all sticks first to establish the woodMap on the screen
+			drawEnvironment(1, logCount)
+
+			// 2. Draw fire with blending logic
+			drawFireBlended()
+
 			screen.Show()
 		}
 	}
@@ -109,11 +111,11 @@ func main() {
 
 func resize() {
 	width, height = screen.Size()
-	
+
 	// Hearth fills the entire screen
 	hearthLeft = 0
 	hearthRight = width
-	
+
 	// Fire simulation grid
 	fireHeight = height * 2
 	initFire()
@@ -122,80 +124,233 @@ func resize() {
 
 func generateLogs() {
 	woodMap = make([]int, width*height)
-	centerX := float64(hearthLeft + hearthRight) / 2.0
+	centerX := float64(hearthLeft+hearthRight) / 2.0
 	bottomY := float64(height - 1)
 	aspect := 2.0
 
-	// The central peak where sticks converge
-	peakX := centerX
-	peakY := bottomY - float64(height)/10.0
-	
-	// Base dimensions (ellipse on the "ground")
-	baseRX := float64(hearthRight-hearthLeft) * 0.5
-	baseRY := float64(height) / 20.0 
-	
-	baseRadius := float64(height) / 40.0
-	if baseRadius < 0.6 { baseRadius = 0.6 }
+	// Sticks should be thin
+	baseRadius := float64(height) / 90.0
+	if baseRadius < 0.4 {
+		baseRadius = 0.4
+	}
 
 	type Log struct {
-		x1, y1, x2, y2 float64
+		midX, midY     float64
+		dx, dy         float64
+		angle          float64
+		length         float64
 		r              float64
-		depth          float64 
+		depth          float64
 		id             int
+		x1, y1, x2, y2 float64
 	}
-	
-	logs := []Log{}
-	numLogs := 60 + rand.Intn(20) 
-	
-	for i := 0; i < numLogs; i++ {
-		theta := rand.Float64() * 2.0 * math.Pi
-		dist := 0.2 + rand.Float64()*0.8
-		
-		x1 := centerX + baseRX * math.Cos(theta) * dist
-		y1 := (bottomY - baseRY) + baseRY * math.Sin(theta) * dist
-		
-		x2 := peakX + (rand.Float64()-0.5)*10.0
-		y2 := peakY + (rand.Float64()-0.5)*5.0
-		
-		ext := 0.7 + rand.Float64()*0.6
-		dx, dy := x2-x1, y2-y1
-		x2 = x1 + dx*ext
-		y2 = y1 + dy*ext
-		
-		logs = append(logs, Log{
-			x1: x1, y1: y1, x2: x2, y2: y2,
-			r: baseRadius * (0.6 + rand.Float64()*0.8),
-			depth: y1,
-			id: i + 1,
-		})
+
+	tempLogs := []Log{}
+
+	numLogs := 100
+
+	// Ensure we have an even number for pairing
+
+	if numLogs%2 != 0 {
+
+		numLogs++
+
 	}
-	
-	sort.Slice(logs, func(i, j int) bool {
-		return logs[i].depth < logs[j].depth
+
+	sigmaX := float64(width) * 0.25
+
+	// 1. Generate sticks in pairs to ensure balance
+
+	for i := 0; i < numLogs; i += 2 {
+
+		// Sample a distance from center
+
+		offset := math.Abs(rand.NormFloat64() * sigmaX)
+
+		// Attempt to place a pair (left and right)
+
+		for side := 0; side < 2; side++ {
+
+			var midX, midY float64
+
+			var length, angle, r float64
+
+			dir := 1.0
+
+			if side == 0 {
+
+				dir = -1.0
+
+			}
+
+			maxAttempts := 15
+
+			for attempt := 0; attempt < maxAttempts; attempt++ {
+
+				// Each side gets its own variation but same horizontal distance magnitude
+
+				thisOffset := offset * (0.9 + rand.Float64()*0.2)
+
+				midX = centerX + (dir * thisOffset)
+
+				distFromCenter := (midX - centerX) / sigmaX
+
+				maxH := (float64(height) / 3.0) * math.Exp(-distFromCenter*distFromCenter*0.8)
+
+				length = 7.0 + rand.Float64()*12.0
+
+				angle = (rand.Float64() - 0.5) * math.Pi * 0.6
+
+				r = baseRadius * (0.6 + rand.Float64()*0.8)
+
+				limitY := bottomY - r - 0.5
+
+				hRange := maxH
+
+				if hRange > limitY {
+
+					hRange = limitY
+
+				}
+
+				midY = limitY - rand.Float64()*hRange
+
+				if len(tempLogs) < 4 {
+
+					// Seed the first few sticks near the center
+
+					if math.Abs(midX-centerX) < 5.0 {
+
+						break
+
+					}
+
+					continue
+
+				}
+
+				// Proximity check
+
+				isNear := false
+
+				proximityLimit := length * 1.5
+
+				for _, existing := range tempLogs {
+
+					dx := midX - existing.midX
+
+					dy := midY - existing.midY
+
+					if dx*dx+dy*dy < proximityLimit*proximityLimit {
+
+						isNear = true
+
+						break
+
+					}
+
+				}
+
+				if isNear || attempt == maxAttempts-1 {
+
+					break
+
+				}
+
+			}
+
+			tempLogs = append(tempLogs, Log{
+
+				midX: midX, midY: midY,
+
+				angle: angle, length: length, r: r,
+
+				depth: midY, id: len(tempLogs) + 1,
+			})
+
+		}
+
+	}
+
+	// 2. Adjust angles: if nothing is underneath the center, make it horizontal
+	for i := range tempLogs {
+		underneath := false
+		for j := range tempLogs {
+			if i == j {
+				continue
+			}
+			// Check if log j is "under" log i (larger Y, similar X)
+			// Using a small horizontal window to define "under"
+			if tempLogs[j].midY > tempLogs[i].midY+0.5 &&
+				math.Abs(tempLogs[j].midX-tempLogs[i].midX) < tempLogs[i].length/3.0 {
+				underneath = true
+				break
+			}
+		}
+
+		if !underneath {
+			tempLogs[i].angle = 0
+			// If it's the bottom stick, make sure it's actually near the bottom
+			// to look like it's resting on the floor.
+			if tempLogs[i].midY > bottomY-5.0 {
+				tempLogs[i].midY = bottomY - tempLogs[i].r - 0.2
+			}
+		}
+
+		// Recalculate x1, y1, x2, y2 based on final angle
+		dx := math.Cos(tempLogs[i].angle) * tempLogs[i].length / 2.0
+		dy := math.Sin(tempLogs[i].angle) * tempLogs[i].length / 2.0 / aspect
+
+		// Horizontal clamping
+		mx := tempLogs[i].midX
+		r := tempLogs[i].r
+		if mx-math.Abs(dx)-r < 0 {
+			mx = math.Abs(dx) + r
+		}
+		if mx+math.Abs(dx)+r > float64(width-1) {
+			mx = float64(width-1) - math.Abs(dx) - r
+		}
+
+		tempLogs[i].x1 = mx - dx
+		tempLogs[i].y1 = tempLogs[i].midY - dy
+		tempLogs[i].x2 = mx + dx
+		tempLogs[i].y2 = tempLogs[i].midY + dy
+	}
+
+	// Sort logs by depth
+	sort.Slice(tempLogs, func(i, j int) bool {
+		return tempLogs[i].depth < tempLogs[j].depth
 	})
-	
-	logCount = len(logs)
-	for i := range logs {
-		logs[i].id = i + 1
+
+	logCount = len(tempLogs)
+	for i := range tempLogs {
+		tempLogs[i].id = i + 1
 	}
 
 	for y := 0; y < height; y++ {
 		for x := 0; x < width; x++ {
-			for i := len(logs) - 1; i >= 0; i-- {
-				l := logs[i]
-				px, py := float64(x), float64(y) * aspect
-				ax, ay := l.x1, l.y1 * aspect
-				bx, by := l.x2, l.y2 * aspect
-				
-				abx, aby := bx - ax, by - ay
-				apx, apy := px - ax, py - ay
+			for i := len(tempLogs) - 1; i >= 0; i-- {
+				l := tempLogs[i]
+				px, py := float64(x), float64(y)*aspect
+				ax, ay := l.x1, l.y1*aspect
+				bx, by := l.x2, l.y2*aspect
+
+				abx, aby := bx-ax, by-ay
+				apx, apy := px-ax, py-ay
 				lenSq := abx*abx + aby*aby
+				if lenSq == 0 {
+					continue
+				}
 				t := (apx*abx + apy*aby) / lenSq
-				if t < 0 { t = 0 } else if t > 1 { t = 1 }
-				
-				cx, cy := ax + t*abx, ay + t*aby
-				dx, dy := px - cx, py - cy
-				if dx*dx + dy*dy <= (l.r*aspect)*(l.r*aspect) {
+				if t < 0 {
+					t = 0
+				} else if t > 1 {
+					t = 1
+				}
+
+				cx, cy := ax+t*abx, ay+t*aby
+				dx, dy := px-cx, py-cy
+				if dx*dx+dy*dy <= (l.r*aspect)*(l.r*aspect) {
 					woodMap[y*width+x] = l.id
 					break
 				}
@@ -203,6 +358,7 @@ func generateLogs() {
 		}
 	}
 }
+
 func initFire() {
 	fire = make([]int, width*fireHeight)
 }
@@ -210,6 +366,11 @@ func initFire() {
 func updateFire() {
 	center := float64(width) / 2.0
 	halfWidth := float64(width) / 2.0
+
+	// Clear the top row of fire to prevent "hanging" artifacts
+	for x := 0; x < width; x++ {
+		fire[x] = 0
+	}
 
 	// 1. Propagate and decay
 	for x := 0; x < width; x++ {
@@ -222,49 +383,79 @@ func updateFire() {
 					fire[src-width] = 0
 				}
 			} else {
-				// Minimal jitter for propagation only
 				drift := rand.Intn(3) - 1
 				dstX := x + drift
-				if dstX < 0 { dstX = 0 } else if dstX >= width { dstX = width - 1 }
+				if dstX < 0 {
+					dstX = 0
+				} else if dstX >= width {
+					dstX = width - 1
+				}
 
 				dstIndex := (y-1)*width + dstX
-				if dstIndex < 0 { continue }
+				if dstIndex < 0 {
+					continue
+				}
 
-				// Stable decay based on normal distribution
-				// decay = constant + dist_from_center^2
 				dist := math.Abs(float64(x) - center)
-				normDist := dist / halfWidth
-				
-				// Normal distribution-ish falloff
-				decay := 1 + int(normDist * normDist * 15.0)
-				
-				// Standard upward cooling
-				if y < fireHeight/2 {
-					decay += 1
+				normDist := dist / (halfWidth * 0.8) // Reverted to previous width
+
+				// Slower decay for a larger, taller fire
+				decay := 1 + int(normDist*normDist*6.0)
+
+				if y < fireHeight/2 { // Heat carries further up
+					// Occasionally reduce decay to let "licks" of flame go higher
+					if rand.Float64() > 0.8 {
+						decay = 0
+					} else {
+						decay += 1
+					}
 				}
 
 				newHeat := pixel - decay
-				if newHeat < 0 { newHeat = 0 }
+				if newHeat < 0 {
+					newHeat = 0
+				}
 				fire[dstIndex] = newHeat
 			}
 		}
 	}
 
 	// 2. Stable Refuel
+	minLX, maxLX := width, 0
+	for x := 0; x < width; x++ {
+		if getLogHeight(x) > 0 {
+			if x < minLX {
+				minLX = x
+			}
+			if x > maxLX {
+				maxLX = x
+			}
+		}
+	}
+
+	logSpan := float64(maxLX - minLX)
+	fireSpan := logSpan * 0.8
+	fireCenter := float64(minLX+maxLX) / 2.0
+
 	for x := 0; x < width; x++ {
 		h := getLogHeight(x)
-		if h <= 0 { continue }
-		
-		// Constant heat injection at the base of the logs
-		// Biased to center
-		dist := math.Abs(float64(x) - center)
-		normDist := dist / halfWidth
-		
-		// Higher probability of heat in the center
-		if rand.Float64() > normDist*0.8 {
+		if h <= 0 {
+			continue
+		}
+
+		dist := math.Abs(float64(x) - fireCenter)
+		// Only refuel within the 80% span
+		if dist > fireSpan/2.0 {
+			continue
+		}
+
+		normDist := dist / (fireSpan / 2.0)
+
+		if rand.Float64() > normDist*0.9 {
 			// Inject heat at various depths within logs
-			for i := 0; i < 2; i++ {
-				d := rand.Intn(h + 1)
+			for i := 0; i < 3; i++ { // More heat sources
+				// Fire extends higher into the bundle
+				d := rand.Intn(h*3/4 + 1)
 				fireY := (height - 1 - d) * 2
 				if fireY >= 0 && fireY < fireHeight {
 					fire[fireY*width+x] = 36
@@ -275,56 +466,82 @@ func updateFire() {
 }
 
 func clampFloat(v, min, max float64) float64 {
-	if v < min { return min }
-	if v > max { return max }
+	if v < min {
+		return min
+	}
+	if v > max {
+		return max
+	}
 	return v
 }
 
-func drawFire() {
-	// Map simulation grid to terminal grid.
+func drawFireBlended() {
 	for y := 0; y < height; y++ {
 		for x := 0; x < width; x++ {
-			// Sim coordinates
 			sy1 := y * 2
 			sy2 := y*2 + 1
 
-			// Safety check
 			if sy2*width+x >= len(fire) {
 				continue
 			}
 
 			heat1 := fire[sy1*width+x]
-			heat2 := fire[sy2*width+x] // Bottom half
+			heat2 := fire[sy2*width+x]
 
-			if heat1 == 0 && heat2 == 0 {
+			// Only process if there is actual heat to display
+			if heat1 < 4 && heat2 < 4 {
 				continue
 			}
 
-			// Get existing content (the back logs) to merge with fire
+			// Get existing color from the sticks
 			_, _, existingStyle, _ := screen.GetContent(x, y)
 			existingFg, existingBg, _ := existingStyle.Decompose()
 
-			c1 := colors[clamp(heat1)]
-			c2 := colors[clamp(heat2)]
-
-			// If a half-block has no fire, keep the existing log color
-			// Note: logs are drawn using both Fg and Bg depending on texture.
-			// To simplify, we'll use the background color as the "log color".
-			if heat1 == 0 {
-				c1 = existingFg // Often logs use foreground for highlights
-				if existingFg == tcell.ColorWhite || existingFg == tcell.ColorBlack {
-					c1 = existingBg
-				}
+			// FIX: Ensure we don't blend with the terminal's default white/grey
+			// If it's the default foreground/background, treat it as black
+			if existingFg == tcell.ColorWhite || existingFg == tcell.ColorDefault {
+				existingFg = tcell.ColorBlack
 			}
-			if heat2 == 0 {
-				c2 = existingBg
+			if existingBg == tcell.ColorWhite || existingBg == tcell.ColorDefault {
+				existingBg = tcell.ColorBlack
 			}
 
-			// Upper half block: Foreground is top (c1), Background is bottom (c2)
+			// Map heat to fire colors
+			fireC1 := colors[clamp(heat1)]
+			fireC2 := colors[clamp(heat2)]
+
+			// Blend fire colors with existing stick/background colors
+			c1 := blendColors(existingFg, fireC1, heat1)
+			c2 := blendColors(existingBg, fireC2, heat2)
+
 			style := tcell.StyleDefault.Foreground(c1).Background(c2)
 			screen.SetContent(x, y, '▀', nil, style)
 		}
 	}
+}
+
+func blendColors(base, overlay tcell.Color, heat int) tcell.Color {
+	// If no heat, return the base (wood or black)
+	if heat <= 0 {
+		return base
+	}
+
+	br, bg, bb := base.RGB()
+	or, og, ob := overlay.RGB()
+
+	// Use heat as the blend factor
+	alpha := float64(heat) / 36.0 
+	
+	// Ensure high heat doesn't blow out to white by capping the intensity
+	if alpha > 0.8 {
+		alpha = 0.8
+	}
+
+	r := int32(float64(br)*(1.0-alpha) + float64(or)*alpha)
+	g := int32(float64(bg)*(1.0-alpha) + float64(og)*alpha)
+	b := int32(float64(bb)*(1.0-alpha) + float64(ob)*alpha)
+
+	return tcell.NewRGBColor(clampColor(r), clampColor(g), clampColor(b))
 }
 
 func drawEnvironment(minID, maxID int) {
@@ -334,48 +551,70 @@ func drawEnvironment(minID, maxID int) {
 			if x >= 0 && x < width && y >= 0 && y < height {
 				logID = woodMap[y*width+x]
 			}
-			
+
 			if logID >= minID && logID <= maxID {
-				// Calculate depth factor (0.0 back to 1.0 front)
 				depth := float64(logID) / float64(logCount)
-				
-				// Much darker log colors
-				r := int32(20 + depth*40)
-				g := int32(10 + depth*20)
-				b := int32(5 + depth*10)
-				
-				baseColor := tcell.NewRGBColor(r, g, b)
-				darkColor := tcell.NewRGBColor(r/2, g/2, b/2)
-				
-				noise := (x*57 + y*131) % 10
+
+				// Base stick colors (dark browns)
+				br := int32(25 + depth*35)
+				bg := int32(15 + depth*20)
+				bb := int32(10 + depth*10)
+
+				// Get local fire heat for glow
+				heat1 := 0
+				heat2 := 0
+				if y*2 < fireHeight {
+					heat1 = fire[(y*2)*width+x]
+				}
+				if y*2+1 < fireHeight {
+					heat2 = fire[(y*2+1)*width+x]
+				}
+				avgHeat := (heat1 + heat2) / 2
+
+				// Add fire glow to the stick
+				r := br + int32(avgHeat*5)
+				g := bg + int32(avgHeat*2)
+				b := bb
+
+				baseColor := tcell.NewRGBColor(clampColor(r), clampColor(g), clampColor(b))
+				darkColor := tcell.NewRGBColor(clampColor(r/2), clampColor(g/2), clampColor(b/2))
+
+				noise := (x*13 + y*37 + logID*7) % 10
 				var style tcell.Style
-				
-				// Simple shading based on noise
-				if noise > 7 {
+
+				// Texture characters
+				chars := []rune{' ', ' ', '.', ',', '\'', '`', '.', ' ', ' ', ' '}
+				char := chars[noise%len(chars)]
+
+				if noise > 5 {
 					style = tcell.StyleDefault.Background(darkColor).Foreground(baseColor)
 				} else {
 					style = tcell.StyleDefault.Background(baseColor).Foreground(darkColor)
 				}
-				
-				char := ' '
-				
-				// Subtle top edge highlight (glow from fire)
-				if y > 0 && woodMap[(y-1)*width+x] != logID {
-					highlightR := clampFloat32(r+20, 0, 255)
-					highlightG := clampFloat32(g+10, 0, 255)
-					highlightB := clampFloat32(b+5, 0, 255)
-					style = style.Background(tcell.NewRGBColor(int32(highlightR), int32(highlightG), int32(highlightB)))
-				}
-				
+
 				screen.SetContent(x, y, char, nil, style)
 			}
 		}
 	}
 }
 
+func clampColor(v int32) int32 {
+	if v < 0 {
+		return 0
+	}
+	if v > 255 {
+		return 255
+	}
+	return v
+}
+
 func clampFloat32(v, min, max int32) int32 {
-	if v < min { return min }
-	if v > max { return max }
+	if v < min {
+		return min
+	}
+	if v > max {
+		return max
+	}
 	return v
 }
 
