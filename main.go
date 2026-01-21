@@ -234,18 +234,29 @@ func initFire() {
 
 func updateFire() {
 	// Center calculation
-	center := (hearthLeft + hearthRight) / 2
 	halfWidth := float64(hearthRight - hearthLeft) / 2.0
 	t := float64(tick)
 
-	// Define 3 moving peaks that drift and change intensity
-	p1Pos := float64(center) + math.Sin(t*0.02)*halfWidth*0.5
-	p2Pos := float64(center) + math.Sin(t*0.035+2.1)*halfWidth*0.7
-	p3Pos := float64(center) + math.Sin(t*0.015-1.2)*halfWidth*0.3
-	
-	p1Int := 0.8 + 0.2*math.Sin(t*0.03)
-	p2Int := 0.8 + 0.2*math.Sin(t*0.045)
-	p3Int := 0.8 + 0.2*math.Sin(t*0.02)
+	// Define 5 static heat sources across the hearth with fluctuating intensities
+	numPeaks := 5
+	peakPos := make([]float64, numPeaks)
+	peakInt := make([]float64, numPeaks)
+	for i := 0; i < numPeaks; i++ {
+		f := float64(i) / float64(numPeaks-1)
+		// Fixed horizontal positions
+		peakPos[i] = float64(hearthLeft) + f*float64(hearthRight-hearthLeft)
+		
+		// Intensities fluctuate randomly over time
+		freq := 0.04 + float64(i)*0.025
+		phase := float64(i) * 1.7
+		// Combine sine wave with random jitter for "random height" effect
+		intensity := 0.5 + 0.5*math.Sin(t*freq+phase)
+		intensity *= 0.7 + rand.Float64()*0.6 // Add significant random variance
+		
+		if intensity > 1.0 { intensity = 1.0 }
+		if intensity < 0.3 { intensity = 0.3 }
+		peakInt[i] = intensity
+	}
 
 	// 1. Propagate and decay
 	for x := 0; x < width; x++ {
@@ -258,18 +269,9 @@ func updateFire() {
 					fire[src-width] = 0
 				}
 			} else {
-				// More subtle sporadic wave effect
-				yf := float64(y)
-				wave := math.Sin(t*0.1 + yf*0.05) * 0.6
-				wave += math.Sin(t*0.18 - yf*0.1) * 0.3
-				
-				if (tick/60)%4 == 0 {
-					wave += math.Sin(yf*0.15) * 0.4
-				}
-
-				// Propagation with center-biased jitter + subtle wave drift
-				randIdx := rand.Intn(3) // 0, 1, 2
-				dstX := x - randIdx + 1 + int(wave)
+				// Minimal random jitter (no more coherent horizontal drifting)
+				drift := rand.Intn(3) - 1 // -1, 0, 1
+				dstX := x + drift
 				
 				if dstX < 0 {
 					dstX = 0
@@ -286,17 +288,21 @@ func updateFire() {
 				decay := rand.Intn(2)
 				
 				// Multi-peak distance decay
-				d1 := math.Abs(float64(x)-p1Pos) / (halfWidth * 0.4 * p1Int)
-				d2 := math.Abs(float64(x)-p2Pos) / (halfWidth * 0.4 * p2Int)
-				d3 := math.Abs(float64(x)-p3Pos) / (halfWidth * 0.4 * p3Int)
+				// Find the nearest source and use its current intensity to scale height
+				minNormDist := 100.0
+				for i := 0; i < numPeaks; i++ {
+					// Scale distance by peak intensity. Larger intensity = taller flame.
+					d := math.Abs(float64(x)-peakPos[i]) / (halfWidth * 0.25 * peakInt[i])
+					if d < minNormDist {
+						minNormDist = d
+					}
+				}
+				decay += int(minNormDist * minNormDist * 15.0)
 				
-				minNormDist := math.Min(d1, math.Min(d2, d3))
-				decay += int(minNormDist * minNormDist * 14.0)
-				
-				// Height-based decay
-				if y < fireHeight/2 {
-					heightDecay := 1.0 - (float64(y) / (float64(fireHeight) / 2.0))
-					decay += int(heightDecay * 4.0)
+				// Height-based decay (y=0 is top)
+				if y < fireHeight/3 {
+					heightDecay := 1.0 - (float64(y) / (float64(fireHeight) / 3.0))
+					decay += int(heightDecay * 5.0)
 				}
 
 				newHeat := pixel - decay
@@ -313,17 +319,20 @@ func updateFire() {
 		h := getLogHeight(x)
 		if h <= 0 { continue }
 		
-		// Distance to nearest peak for fueling intensity
-		d1 := math.Abs(float64(x)-p1Pos) / (halfWidth * 0.5)
-		d2 := math.Abs(float64(x)-p2Pos) / (halfWidth * 0.5)
-		d3 := math.Abs(float64(x)-p3Pos) / (halfWidth * 0.5)
-		minDist := math.Min(d1, math.Min(d2, d3))
+		// Influence fuel based on nearest peak's current intensity
+		maxLocalInt := 0.0
+		for i := 0; i < numPeaks; i++ {
+			dist := math.Abs(float64(x)-peakPos[i]) / (halfWidth * 0.3)
+			if dist < 1.0 {
+				local := peakInt[i] * (1.0 - dist)
+				if local > maxLocalInt { maxLocalInt = local }
+			}
+		}
 
 		for i := 0; i < 2; i++ {
 			d := rand.Intn(h + 1)
 			screenY := height - 1 - d
-			fireY := screenY * 2
-			fireY += rand.Intn(2)
+			fireY := screenY * 2 + rand.Intn(2)
 			
 			if fireY >= fireHeight { fireY = fireHeight - 1 }
 			if fireY < 0 { fireY = 0 }
@@ -331,19 +340,10 @@ func updateFire() {
 			idx := fireY * width + x
 			if idx >= 0 && idx < len(fire) {
 				r := rand.Intn(100)
-				heat := 0
-				
-				// Fueling biased towards moving peaks
-				threshold := 15.0 + (minDist * 70.0) 
+				// Refuel threshold depends on current peak intensity
+				threshold := 10.0 + (1.0 - maxLocalInt)*70.0
 				if float64(r) > threshold {
-					heat = 36
-					if minDist > 0.4 && r > 80 {
-						heat = 20
-					}
-				}
-				
-				if heat > 0 {
-					fire[idx] = heat
+					fire[idx] = 36
 				}
 			}
 		}
