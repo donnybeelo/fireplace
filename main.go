@@ -166,28 +166,28 @@ func generateLogs() {
 		})
 	}
 	
-	// 2. Stacked Layer (Leaning inwards)
+	// 2. Stacked Layer (Leaning upwards towards center)
 	numStack := 4 + rand.Intn(3)
 	for i := 0; i < numStack; i++ {
 		// Closer to center
 		r := (rand.Float64() - 0.5)
-		offset := r * logLen * 0.6
+		offset := r * logLen * 0.7
 		cx := centerX + offset
 		
 		// Stacked on top
-		cy := bottomY - baseRadius * 2.5 - (rand.Float64() * baseRadius * 1.5)
+		cy := bottomY - baseRadius * 2.2 - (rand.Float64() * baseRadius * 1.5)
 		
-		// Inward leaning angle
-		// If on left (offset < 0), lean right (angle > 0).
-		// If on right (offset > 0), lean left (angle < 0).
-		// Magnitude proportional to distance from center?
-		leanAmt := -offset / (logLen * 0.5) // -1 to 1 roughly
-		angle := leanAmt * 0.5 // +/- 0.5 rad (~30 deg)
+		// Inward leaning angle (Upwards towards center)
+		// offset < 0 (left): we want y2 (inner) < y1 (outer) -> angle < 0
+		// offset > 0 (right): we want y1 (inner) < y2 (outer) -> angle > 0
+		// Current offset/logLen is -0.5 to 0.5.
+		leanAmt := offset / (logLen * 0.5) 
+		angle := leanAmt * 0.4 // Max ~23 degrees
 		
 		// Add some randomness
 		angle += (rand.Float64() - 0.5) * 0.2
 		
-		l := logLen * (0.6 + rand.Float64()*0.5)
+		l := logLen * (0.6 + rand.Float64()*0.4)
 		
 		x1 := cx - (math.Cos(angle) * l / 2.0)
 		y1 := cy - (math.Sin(angle) * l / 2.0)
@@ -262,18 +262,14 @@ func updateFire() {
 				decay := rand.Intn(2) // 0 or 1
 				
 				// Distance-based decay to create "peak" in middle
-				// normalized distance from center 0..1
 				dist := math.Abs(float64(x - center))
 				normDist := dist / halfWidth
 				
-				// Add extra decay based on distance from center
-				// This shapes the fire into a cone/peak
-				// Reduced multiplier from 4.0 to 2.0 to make fire wider/taller
-				decay += int(normDist * 2.0)
+				// Slightly increased decay compared to before to shrink fire
+				decay += int(normDist * 3.0)
 				
-				// General height control: taller fire
-				// y=0 is top. Only decay significantly if very high up.
-				if y < fireHeight/4 {
+				// General height control
+				if y < fireHeight/3 {
 					decay += 1
 				}
 
@@ -286,57 +282,44 @@ func updateFire() {
 		}
 	}
 
-	// 2. Refuel from wood surface or gaps
+	// 2. Refuel from wood surface ONLY
 	for x := hearthLeft; x < hearthRight; x++ {
 		// Log height at this x
 		h := getLogHeight(x)
 		
-		var fireY int
-		if h > 0 {
-			woodTopDist := h 
-			// Screen row for top of wood
-			screenY := height - 1 - woodTopDist
-			
-			// Fire grid row
-			fireY = screenY * 2
-			
-			// Add some random depth to make it look like it's coming from inside the pile
-			fireY += rand.Intn(6)
-		} else {
-			// Gap in the wood (see through to back/grate)
-			// Spawn fire here too if central, to simulate fire inside/under the pile
-			center := (hearthLeft + hearthRight) / 2
-			width := hearthRight - hearthLeft
-			if math.Abs(float64(x - center)) < float64(width)*0.5 { // Increased from 0.4
-				fireY = (height - 1) * 2
-				fireY -= rand.Intn(5)
-			} else {
-				continue
-			}
-		}
+		// Fire ONLY comes from logs
+		if h <= 0 { continue }
+		
+		woodTopDist := h 
+		// Screen row for top of wood
+		screenY := height - 1 - woodTopDist
+		
+		// Fire grid row
+		fireY := screenY * 2
+		
+		// Add some random depth
+		fireY += rand.Intn(6)
 		
 		if fireY >= fireHeight { fireY = fireHeight - 1 }
 		if fireY < 0 { fireY = 0 }
 
 		idx := fireY * width + x
 		if idx >= 0 && idx < len(fire) {
-			// Randomly vary heat
 			r := rand.Intn(100)
 			heat := 36
 			
-			// More intense fuel
+			// Less uniform ignition
 			if r > 50 {
 				heat = 0 // Gap
 			} else if r > 20 {
 				heat = 36 // Hot spot
 			} else {
-				heat = 30 // Warm spot
+				heat = 25 // Cooler spot
 			}
 			
 			// Always ignite center bottom more
-			center := (hearthLeft + hearthRight) / 2
 			dist := math.Abs(float64(x - center))
-			if dist < 8 && rand.Intn(10) > 1 { // Wider hot center
+			if dist < 6 && rand.Intn(10) > 2 {
 				heat = 36
 			}
 			
@@ -347,7 +330,7 @@ func updateFire() {
 	}
 	
 	// 3. Embers (Sparks)
-	if rand.Intn(100) < 15 { // Increased chance
+	if rand.Intn(100) < 10 { // Slightly reduced chance
 		rx := hearthLeft + rand.Intn(hearthRight - hearthLeft)
 		ry := (height / 2) * 2 + rand.Intn(20)
 		idx := ry * width + rx
