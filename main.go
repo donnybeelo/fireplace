@@ -123,118 +123,123 @@ func generateLogs() {
 	centerX := float64(hearthLeft + hearthRight) / 2.0
 	bottomY := float64(height - 1)
 	
-	// Terminal character aspect ratio correction
-	// A character is roughly twice as tall as it is wide (pixels).
-	// To perform geometric checks (rotation), we treat Y as 2x units.
+	// Terminal aspect ratio correction (Y is 2x visual height of X)
 	aspect := 2.0
 	
-	// Log dimensions (in character units)
-	// Length should be proportional to hearth width
-	logLen := float64(hearthRight - hearthLeft) / 2.5
-	if logLen < 5 { logLen = 5 }
+	// Settings
+	baseRadius := float64(height) / 10.0
+	if baseRadius < 2.5 { baseRadius = 2.5 }
 	
-	// Thickness
-	logThick := float64(height) / 8.0
-	if logThick < 2 { logThick = 2 }
-
+	logLen := float64(hearthRight - hearthLeft) / 1.8
+	
 	type Log struct {
-		x, y   float64 // Center position
-		w, h   float64 // Width (length) and Height (thickness)
-		angle  float64 // Rotation in radians
-		id     int
+		x1, y1, x2, y2 float64 // Endpoints
+		r              float64 // Radius
+		id             int
 	}
 	
 	logs := []Log{}
 	
-	// Generate a "messy pile"
-	// 1. Base layer: randomly placed flat-ish logs
-	numBase := 3
-	for i := 0; i < numBase; i++ {
-		// Scatter X around center
-		// Normalized pos from -1 to 1
-		t := float64(i)/float64(numBase-1) - 0.5
-		x := centerX + t * logLen * 1.5
-		
-		// Randomize X slightly
-		x += (rand.Float64() - 0.5) * 5.0
-		
-		// Y is at bottom
-		y := bottomY - logThick*0.6
-		
-		// Angle: mostly flat (-15 to 15 degrees)
-		angle := (rand.Float64() - 0.5) * 0.5
-		
-		logs = append(logs, Log{
-			x: x, y: y, 
-			w: logLen * (0.8 + rand.Float64()*0.4), // Random length variation
-			h: logThick * (0.8 + rand.Float64()*0.4), 
-			angle: angle, 
-			id: i + 1,
-		})
-	}
+	// 1. Base Logs (Horizontal-ish) holding the structure
+	// Back log
+	logs = append(logs, Log{
+		x1: centerX - logLen/2.0, y1: bottomY - baseRadius*2.5,
+		x2: centerX + logLen/2.0, y2: bottomY - baseRadius*2.5,
+		r: baseRadius * 1.1, id: 1,
+	})
 	
-	// 2. Leaning/Stacked logs
-	numStack := 4
-	for i := 0; i < numStack; i++ {
-		// Place these higher up and closer to center
-		x := centerX + (rand.Float64() - 0.5) * logLen
-		y := bottomY - logThick * 1.5 - (rand.Float64() * logThick * 2.0)
-		
-		// Steeper angles (-45 to 45 degrees, or even more)
-		angle := (rand.Float64() - 0.5) * math.Pi / 1.5
-		
-		// Ensure they lean *in* towards center?
-		// If x < center, lean right (angle > 0)?
-		// Let's just keep it random for "messy".
-		
-		logs = append(logs, Log{
-			x: x, y: y, 
-			w: logLen * (0.7 + rand.Float64()*0.5), 
-			h: logThick * (0.8 + rand.Float64()*0.4), 
-			angle: angle, 
-			id: numBase + i + 1,
-		})
-	}
+	// Front log (Lower)
+	logs = append(logs, Log{
+		x1: centerX - logLen/2.0, y1: bottomY - baseRadius*0.8,
+		x2: centerX + logLen/2.0, y2: bottomY - baseRadius*0.8,
+		r: baseRadius, id: 2,
+	})
 	
-	// Render logs
+	// 2. Cross logs (resting on top)
+	// Left leaning in
+	logs = append(logs, Log{
+		x1: centerX - logLen*0.4, y1: bottomY - baseRadius*2.0, // Back-ish
+		x2: centerX + logLen*0.1, y2: bottomY - baseRadius*3.5, // Front-ish/Top
+		r: baseRadius * 0.9, id: 3,
+	})
+	
+	// Right leaning in (crossing the left one)
+	logs = append(logs, Log{
+		x1: centerX + logLen*0.4, y1: bottomY - baseRadius*2.0,
+		x2: centerX - logLen*0.2, y2: bottomY - baseRadius*4.0, // Higher
+		r: baseRadius * 0.8, id: 4,
+	})
+	
+	// Top log (smaller)
+	logs = append(logs, Log{
+		x1: centerX - logLen*0.2, y1: bottomY - baseRadius*4.5,
+		x2: centerX + logLen*0.2, y2: bottomY - baseRadius*4.2,
+		r: baseRadius * 0.7, id: 5,
+	})
+
+	// Render Capsule SDF
 	for y := 0; y < height; y++ {
 		for x := 0; x < width; x++ {
-			// Check each log
-			// We iterate in reverse to let later logs draw on top (painter's algo)
+			// Iterate reverse for painter's algo
 			for i := len(logs) - 1; i >= 0; i-- {
 				l := logs[i]
 				
-				// Transform point (x,y) to log local space
-				// 1. Translate
-				dx := float64(x) - l.x
-				dy := (float64(y) - l.y) * aspect // Scale Y for aspect ratio
+				// Point P
+				px, py := float64(x), float64(y) * aspect
 				
-				// 2. Rotate by -angle
-				// x' = x cos t - y sin t
-				// y' = x sin t + y cos t
-				cosA := math.Cos(-l.angle)
-				sinA := math.Sin(-l.angle)
+				// Segment AB (scale Y by aspect)
+				ax, ay := l.x1, l.y1 * aspect
+				bx, by := l.x2, l.y2 * aspect
 				
-				localX := dx*cosA - dy*sinA
-				localY := dx*sinA + dy*cosA
+				// Vector AB
+				abx, aby := bx - ax, by - ay
+				// Vector AP
+				apx, apy := px - ax, py - ay
 				
-				// 3. Check bounds (Rectangle)
-				// w is length (X in local), h is thickness (Y in local)
-				// But wait, w is screen X units. h is screen Y units * aspect?
-				// Let's define w and h in "screen units corrected for aspect"
-				// Actually simpler: w is "visual length", h is "visual thickness".
-				// Since we scaled dy by aspect, we are working in "pixel-ish" space where Y is compressed?
-				// No, we scaled UP dy. So we are working in "square pixel" space.
-				// So W and H should be in square pixels.
-				// Width in chars = l.w. Width in square pixels = l.w
-				// Height in chars = l.h. Height in square pixels = l.h * aspect
+				// Project AP onto AB to find t
+				// t = dot(AP, AB) / dot(AB, AB)
+				lenSq := abx*abx + aby*aby
+				t := (apx*abx + apy*aby) / lenSq
 				
-				halfW := l.w / 2.0
-				halfH := (l.h * aspect) / 2.0
+				// Clamp t to segment [0, 1]
+				if t < 0 { t = 0 }
+				if t > 1 { t = 1 }
 				
-				if math.Abs(localX) <= halfW && math.Abs(localY) <= halfH {
+				// Closest point on segment
+				cx := ax + t*abx
+				cy := ay + t*aby
+				
+				// Distance P to C
+				dx, dy := px - cx, py - cy
+				distSq := dx*dx + dy*dy
+				
+				// Check radius (visual radius = l.r * 2.0 approx in X units?)
+				// Using simple pixel units relative to X
+				// l.r is in "rows" roughly in previous logic? 
+				// Let's assume l.r is in X-pixels
+				// In previous logic: aspect=2.0 meant Y coords were doubled.
+				// So l.r should be comparable to X units.
+				// Radius check:
+				// Visual width of log is 2*r.
+				
+				// Adjust radius for aspect? No, circle in this transformed space is an ellipse in screen space?
+				// We scaled Y by aspect. So a circle in (x, y*aspect) space is a circle.
+				// In screen space (x, y), it's squashed vertically if aspect > 1.
+				// Actually, we want round logs.
+				// If we calculate dist in "square pixel space" (which we did by scaling y),
+				// then checking against r^2 implies a sphere/cylinder.
+				// In screen space, this will look correct (round cross section).
+				
+				// Radius scaling: baseRadius was defined as height/10.
+				// height is rows. Y*aspect is "pixel rows".
+				// So radius should be scaled by aspect?
+				// baseRadius (rows) * aspect = baseRadius (pixels).
+				
+				rPix := l.r * aspect
+				
+				if distSq <= rPix*rPix {
 					woodMap[y*width+x] = l.id
-					break // Found the top-most log for this pixel
+					break
 				}
 			}
 		}
@@ -300,29 +305,41 @@ func updateFire() {
 		}
 	}
 
-	// 2. Refuel from wood surface
+	// 2. Refuel from wood surface or gaps
 	for x := hearthLeft; x < hearthRight; x++ {
 		// Log height at this x
 		h := getLogHeight(x)
-		if h <= 0 { continue }
 		
-		woodTopDist := h 
-		
-		// Screen row for top of wood
-		screenY := height - 1 - woodTopDist
-		
-		// Fire grid row
-		fireY := screenY * 2
-		
-		// Add some random depth to make it look like it's coming from inside the pile
-		fireY += rand.Intn(6)
+		var fireY int
+		if h > 0 {
+			woodTopDist := h 
+			// Screen row for top of wood
+			screenY := height - 1 - woodTopDist
+			
+			// Fire grid row
+			fireY = screenY * 2
+			
+			// Add some random depth to make it look like it's coming from inside the pile
+			fireY += rand.Intn(6)
+		} else {
+			// Gap in the wood (see through to back/grate)
+			// Spawn fire here too if central, to simulate fire inside/under the pile
+			center := (hearthLeft + hearthRight) / 2
+			width := hearthRight - hearthLeft
+			if math.Abs(float64(x - center)) < float64(width)*0.4 {
+				fireY = (height - 1) * 2
+				fireY -= rand.Intn(5)
+			} else {
+				continue
+			}
+		}
 		
 		if fireY >= fireHeight { fireY = fireHeight - 1 }
 		if fireY < 0 { fireY = 0 }
 
 		idx := fireY * width + x
 		if idx >= 0 && idx < len(fire) {
-			// Randomly vary heat to create flicker and multiple source points
+			// Randomly vary heat
 			r := rand.Intn(100)
 			heat := 36
 			
@@ -336,6 +353,7 @@ func updateFire() {
 			}
 			
 			// Always ignite center bottom more
+			center := (hearthLeft + hearthRight) / 2
 			dist := math.Abs(float64(x - center))
 			if dist < 5 && rand.Intn(10) > 2 {
 				heat = 36
