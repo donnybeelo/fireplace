@@ -127,10 +127,12 @@ func generateLogs() {
 	aspect := 2.0
 	
 	// Settings
-	baseRadius := float64(height) / 10.0
-	if baseRadius < 2.5 { baseRadius = 2.5 }
+	// Reduce radius to make pile shorter (approx 1/18th of height instead of 1/10th)
+	baseRadius := float64(height) / 18.0
+	if baseRadius < 1.5 { baseRadius = 1.5 }
 	
-	logLen := float64(hearthRight - hearthLeft) / 1.8
+	// Make logs slightly longer to compensate for thinness
+	logLen := float64(hearthRight - hearthLeft) / 1.6
 	
 	type Log struct {
 		x1, y1, x2, y2 float64 // Endpoints
@@ -143,8 +145,8 @@ func generateLogs() {
 	// 1. Base Logs (Horizontal-ish) holding the structure
 	// Back log
 	logs = append(logs, Log{
-		x1: centerX - logLen/2.0, y1: bottomY - baseRadius*2.5,
-		x2: centerX + logLen/2.0, y2: bottomY - baseRadius*2.5,
+		x1: centerX - logLen/2.0, y1: bottomY - baseRadius*2.2,
+		x2: centerX + logLen/2.0, y2: bottomY - baseRadius*2.2,
 		r: baseRadius * 1.1, id: 1,
 	})
 	
@@ -158,22 +160,22 @@ func generateLogs() {
 	// 2. Cross logs (resting on top)
 	// Left leaning in
 	logs = append(logs, Log{
-		x1: centerX - logLen*0.4, y1: bottomY - baseRadius*2.0, // Back-ish
-		x2: centerX + logLen*0.1, y2: bottomY - baseRadius*3.5, // Front-ish/Top
+		x1: centerX - logLen*0.4, y1: bottomY - baseRadius*1.5, // Back-ish
+		x2: centerX + logLen*0.1, y2: bottomY - baseRadius*3.0, // Front-ish/Top
 		r: baseRadius * 0.9, id: 3,
 	})
 	
 	// Right leaning in (crossing the left one)
 	logs = append(logs, Log{
-		x1: centerX + logLen*0.4, y1: bottomY - baseRadius*2.0,
-		x2: centerX - logLen*0.2, y2: bottomY - baseRadius*4.0, // Higher
+		x1: centerX + logLen*0.4, y1: bottomY - baseRadius*1.5,
+		x2: centerX - logLen*0.2, y2: bottomY - baseRadius*3.5, // Higher
 		r: baseRadius * 0.8, id: 4,
 	})
 	
 	// Top log (smaller)
 	logs = append(logs, Log{
-		x1: centerX - logLen*0.2, y1: bottomY - baseRadius*4.5,
-		x2: centerX + logLen*0.2, y2: bottomY - baseRadius*4.2,
+		x1: centerX - logLen*0.2, y1: bottomY - baseRadius*3.8,
+		x2: centerX + logLen*0.2, y2: bottomY - baseRadius*3.6,
 		r: baseRadius * 0.7, id: 5,
 	})
 
