@@ -123,9 +123,9 @@ func generateLogs() {
 	centerX := float64(hearthLeft + hearthRight) / 2.0
 	bottomY := float64(height - 1)
 	
-	// Target point (center of the pile, slightly above bottom)
+	// Target point: lower it significantly to prevent vertical leaning
 	targetX := centerX
-	targetY := bottomY - float64(height)/8.0 
+	targetY := bottomY - float64(height)/15.0 
 	
 	aspect := 2.0
 	
@@ -142,27 +142,44 @@ func generateLogs() {
 	}
 	
 	logs := []Log{}
-	numLogs := 18 + rand.Intn(10) // More logs
+	numLogs := 15 + rand.Intn(8) // Slightly fewer logs for clarity
 	
 	for i := 0; i < numLogs; i++ {
-		// Starting point: along the bottom hearth
-		x1 := float64(hearthLeft) + rand.Float64()*float64(hearthRight-hearthLeft)
-		y1 := bottomY - rand.Float64()*baseRadius*1.5
+		// Starting point: biased towards the outer edges of the hearth to avoid vertical slopes
+		var x1 float64
+		if rand.Float64() < 0.5 {
+			// Left side
+			x1 = float64(hearthLeft) + rand.Float64()*float64(hearthRight-hearthLeft)*0.4
+		} else {
+			// Right side
+			x1 = float64(hearthRight) - rand.Float64()*float64(hearthRight-hearthLeft)*0.4
+		}
+		
+		y1 := bottomY - rand.Float64()*baseRadius
 		
 		// Direction towards target center
 		angle := math.Atan2(targetY - y1, targetX - x1)
 		
-		// Add variance (+/- 15 degrees)
-		angle += (rand.Float64() - 0.5) * 0.5
+		// Add variance but clamp it to stay horizontal-ish
+		angle += (rand.Float64() - 0.5) * 0.4
 		
-		// End point (shorter logs)
-		l := logLen * (0.6 + rand.Float64()*0.6)
+		// Clamp angle to avoid verticality (no steeper than ~40 degrees)
+		if x1 < targetX {
+			if angle < -0.7 { angle = -0.7 }
+			if angle > 0.3 { angle = 0.3 }
+		} else {
+			if angle > math.Pi+0.7 { angle = math.Pi + 0.7 }
+			if angle < math.Pi-0.7 { angle = math.Pi - 0.7 }
+		}
+		
+		// End point
+		l := logLen * (0.6 + rand.Float64()*0.4)
 		x2 := x1 + math.Cos(angle)*l
 		y2 := y1 + math.Sin(angle)*l
 		
 		logs = append(logs, Log{
 			x1: x1, y1: y1, x2: x2, y2: y2,
-			r: baseRadius * (0.7 + rand.Float64()*0.5),
+			r: baseRadius * (0.8 + rand.Float64()*0.4),
 			id: i + 1,
 		})
 	}
