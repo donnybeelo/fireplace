@@ -236,6 +236,16 @@ func updateFire() {
 	// Center calculation
 	center := (hearthLeft + hearthRight) / 2
 	halfWidth := float64(hearthRight - hearthLeft) / 2.0
+	t := float64(tick)
+
+	// Define 3 moving peaks that drift and change intensity
+	p1Pos := float64(center) + math.Sin(t*0.02)*halfWidth*0.5
+	p2Pos := float64(center) + math.Sin(t*0.035+2.1)*halfWidth*0.7
+	p3Pos := float64(center) + math.Sin(t*0.015-1.2)*halfWidth*0.3
+	
+	p1Int := 0.8 + 0.2*math.Sin(t*0.03)
+	p2Int := 0.8 + 0.2*math.Sin(t*0.045)
+	p3Int := 0.8 + 0.2*math.Sin(t*0.02)
 
 	// 1. Propagate and decay
 	for x := 0; x < width; x++ {
@@ -249,12 +259,10 @@ func updateFire() {
 				}
 			} else {
 				// More subtle sporadic wave effect
-				t := float64(tick)
 				yf := float64(y)
 				wave := math.Sin(t*0.1 + yf*0.05) * 0.6
 				wave += math.Sin(t*0.18 - yf*0.1) * 0.3
 				
-				// Add occasional very subtle gusts
 				if (tick/60)%4 == 0 {
 					wave += math.Sin(yf*0.15) * 0.4
 				}
@@ -277,13 +285,15 @@ func updateFire() {
 				// Base random decay
 				decay := rand.Intn(2)
 				
-				// EVEN Pointier: Non-linear distance decay
-				dist := math.Abs(float64(x - center))
-				normDist := dist / halfWidth
-				// Increased multiplier to 12.0 for a sharper peak
-				decay += int(normDist * normDist * 12.0)
+				// Multi-peak distance decay
+				d1 := math.Abs(float64(x)-p1Pos) / (halfWidth * 0.4 * p1Int)
+				d2 := math.Abs(float64(x)-p2Pos) / (halfWidth * 0.4 * p2Int)
+				d3 := math.Abs(float64(x)-p3Pos) / (halfWidth * 0.4 * p3Int)
 				
-				// Height-based decay (y=0 is top)
+				minNormDist := math.Min(d1, math.Min(d2, d3))
+				decay += int(minNormDist * minNormDist * 14.0)
+				
+				// Height-based decay
 				if y < fireHeight/2 {
 					heightDecay := 1.0 - (float64(y) / (float64(fireHeight) / 2.0))
 					decay += int(heightDecay * 4.0)
@@ -303,15 +313,16 @@ func updateFire() {
 		h := getLogHeight(x)
 		if h <= 0 { continue }
 		
-		// Ignite from multiple depths within the wood at this column
+		// Distance to nearest peak for fueling intensity
+		d1 := math.Abs(float64(x)-p1Pos) / (halfWidth * 0.5)
+		d2 := math.Abs(float64(x)-p2Pos) / (halfWidth * 0.5)
+		d3 := math.Abs(float64(x)-p3Pos) / (halfWidth * 0.5)
+		minDist := math.Min(d1, math.Min(d2, d3))
+
 		for i := 0; i < 2; i++ {
-			// Pick a random distance from the bottom (0) to the top of the wood (h)
 			d := rand.Intn(h + 1)
 			screenY := height - 1 - d
-			
-			// Fire grid row
 			fireY := screenY * 2
-			// Add slight jitter for resolution
 			fireY += rand.Intn(2)
 			
 			if fireY >= fireHeight { fireY = fireHeight - 1 }
@@ -319,17 +330,14 @@ func updateFire() {
 
 			idx := fireY * width + x
 			if idx >= 0 && idx < len(fire) {
-				dist := math.Abs(float64(x - center))
-				normDist := dist / halfWidth
-				
 				r := rand.Intn(100)
 				heat := 0
 				
-				// Tighter ignition core
-				threshold := 20.0 + (normDist * 60.0) 
+				// Fueling biased towards moving peaks
+				threshold := 15.0 + (minDist * 70.0) 
 				if float64(r) > threshold {
 					heat = 36
-					if normDist > 0.5 && r > 85 {
+					if minDist > 0.4 && r > 80 {
 						heat = 20
 					}
 				}
