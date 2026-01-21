@@ -285,38 +285,45 @@ func updateFire() {
 		}
 	}
 
-	// 2. Refuel from wood surface ONLY
+	// 2. Refuel from WITHIN the bundle
 	for x := hearthLeft; x < hearthRight; x++ {
 		h := getLogHeight(x)
 		if h <= 0 { continue }
 		
-		woodTopDist := h 
-		screenY := height - 1 - woodTopDist
-		fireY := screenY * 2
-		fireY += rand.Intn(4)
-		
-		if fireY >= fireHeight { fireY = fireHeight - 1 }
-		if fireY < 0 { fireY = 0 }
+		// Ignite from multiple depths within the wood at this column
+		for i := 0; i < 2; i++ {
+			// Pick a random distance from the bottom (0) to the top of the wood (h)
+			d := rand.Intn(h + 1)
+			screenY := height - 1 - d
+			
+			// Fire grid row
+			fireY := screenY * 2
+			// Add slight jitter for resolution
+			fireY += rand.Intn(2)
+			
+			if fireY >= fireHeight { fireY = fireHeight - 1 }
+			if fireY < 0 { fireY = 0 }
 
-		idx := fireY * width + x
-		if idx >= 0 && idx < len(fire) {
-			dist := math.Abs(float64(x - center))
-			normDist := dist / halfWidth
-			
-			r := rand.Intn(100)
-			heat := 0
-			
-			// Tighter ignition core
-			threshold := 20.0 + (normDist * 60.0) 
-			if float64(r) > threshold {
-				heat = 36
-				if normDist > 0.5 && r > 85 {
-					heat = 20
+			idx := fireY * width + x
+			if idx >= 0 && idx < len(fire) {
+				dist := math.Abs(float64(x - center))
+				normDist := dist / halfWidth
+				
+				r := rand.Intn(100)
+				heat := 0
+				
+				// Tighter ignition core
+				threshold := 20.0 + (normDist * 60.0) 
+				if float64(r) > threshold {
+					heat = 36
+					if normDist > 0.5 && r > 85 {
+						heat = 20
+					}
 				}
-			}
-			
-			if heat > 0 {
-				fire[idx] = heat
+				
+				if heat > 0 {
+					fire[idx] = heat
+				}
 			}
 		}
 	}
