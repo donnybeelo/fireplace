@@ -95,20 +95,12 @@ func main() {
 			tick++
 			updateFire()
 			
-			// Layered rendering
 			screen.Clear()
 			
-			// 1. Draw bricks and logs in the back
+			// Layered rendering
 			drawEnvironment(1, logCount/2)
-			
-			// 2. Draw fire
 			drawFire()
-			
-			// 3. Draw logs in the front (on top of fire)
 			drawEnvironment(logCount/2+1, logCount)
-			
-			// 4. Draw iron grate
-			drawGrate()
 			
 			screen.Show()
 		}
@@ -118,16 +110,9 @@ func main() {
 func resize() {
 	width, height = screen.Size()
 	
-	// Define fireplace dimensions
-	woodHeight = height / 5
-	if woodHeight < 3 {
-		woodHeight = 3
-	}
-	
-	// Hearth is centered, 70% of width (standard fireplace opening)
-	hearthWidth := int(float64(width) * 0.7)
-	hearthLeft = (width - hearthWidth) / 2
-	hearthRight = hearthLeft + hearthWidth
+	// Hearth fills the entire screen
+	hearthLeft = 0
+	hearthRight = width
 	
 	// Fire simulation grid
 	fireHeight = height * 2
@@ -223,23 +208,8 @@ func initFire() {
 }
 
 func updateFire() {
-	halfWidth := float64(hearthRight - hearthLeft) / 2.0
-	t := float64(tick)
-
-	// Use slightly fewer but wider heat sources
-	numPeaks := 8
-	peakPos := make([]float64, numPeaks)
-	peakInt := make([]float64, numPeaks)
-	for i := 0; i < numPeaks; i++ {
-		f := float64(i) / float64(numPeaks-1)
-		peakPos[i] = float64(hearthLeft) + f*float64(hearthRight-hearthLeft)
-		
-		freq := 0.05 + math.Sin(float64(i)*1.3)*0.02
-		intensity := 0.6 + 0.4*math.Sin(t*freq + float64(i)*2.4)
-		intensity *= 0.8 + rand.Float64()*0.4
-		
-		peakInt[i] = clampFloat(intensity, 0.2, 1.0)
-	}
+	center := float64(width) / 2.0
+	halfWidth := float64(width) / 2.0
 
 	// 1. Propagate and decay
 	for x := 0; x < width; x++ {
@@ -252,28 +222,25 @@ func updateFire() {
 					fire[src-width] = 0
 				}
 			} else {
-				// Increased horizontal jitter for wider licks
-				drift := rand.Intn(5) - 2 // -2, -1, 0, 1, 2
+				// Minimal jitter for propagation only
+				drift := rand.Intn(3) - 1
 				dstX := x + drift
 				if dstX < 0 { dstX = 0 } else if dstX >= width { dstX = width - 1 }
 
 				dstIndex := (y-1)*width + dstX
 				if dstIndex < 0 { continue }
 
-				decay := rand.Intn(2)
+				// Stable decay based on normal distribution
+				// decay = constant + dist_from_center^2
+				dist := math.Abs(float64(x) - center)
+				normDist := dist / halfWidth
 				
-				// Reduced multiplier from 18.0 to 10.0 for wider licks
-				minNormDist := 10.0
-				for i := 0; i < numPeaks; i++ {
-					d := math.Abs(float64(x)-peakPos[i]) / (halfWidth * 0.3 * peakInt[i])
-					if d < minNormDist { minNormDist = d }
-				}
-				decay += int(minNormDist * minNormDist * 10.0)
+				// Normal distribution-ish falloff
+				decay := 1 + int(normDist * normDist * 15.0)
 				
-				// Height-based decay
-				if y < fireHeight/3 {
-					heightDecay := 1.0 - (float64(y) / (float64(fireHeight) / 3.0))
-					decay += int(heightDecay * 5.0)
+				// Standard upward cooling
+				if y < fireHeight/2 {
+					decay += 1
 				}
 
 				newHeat := pixel - decay
@@ -283,46 +250,26 @@ func updateFire() {
 		}
 	}
 
-	// 2. Refuel from WITHIN the bundle
-	for x := hearthLeft; x < hearthRight; x++ {
+	// 2. Stable Refuel
+	for x := 0; x < width; x++ {
 		h := getLogHeight(x)
 		if h <= 0 { continue }
 		
-		maxLocalInt := 0.0
-		for i := 0; i < numPeaks; i++ {
-			dist := math.Abs(float64(x)-peakPos[i]) / (halfWidth * 0.4) // Wider influence
-			if dist < 1.0 {
-				local := peakInt[i] * (1.0 - dist)
-				if local > maxLocalInt { maxLocalInt = local }
-			}
-		}
-
-		for i := 0; i < 2; i++ {
-			d := rand.Intn(h + 1)
-			screenY := height - 1 - d
-			fireY := screenY * 2 + rand.Intn(2)
-			
-			if fireY >= fireHeight { fireY = fireHeight - 1 }
-			if fireY < 0 { fireY = 0 }
-
-			idx := fireY * width + x
-			if idx >= 0 && idx < len(fire) {
-				r := rand.Intn(100)
-				threshold := 10.0 + (1.0 - maxLocalInt)*70.0 // More permissive fueling
-				if float64(r) > threshold {
-					fire[idx] = 36
+		// Constant heat injection at the base of the logs
+		// Biased to center
+		dist := math.Abs(float64(x) - center)
+		normDist := dist / halfWidth
+		
+		// Higher probability of heat in the center
+		if rand.Float64() > normDist*0.8 {
+			// Inject heat at various depths within logs
+			for i := 0; i < 2; i++ {
+				d := rand.Intn(h + 1)
+				fireY := (height - 1 - d) * 2
+				if fireY >= 0 && fireY < fireHeight {
+					fire[fireY*width+x] = 36
 				}
 			}
-		}
-	}
-	
-	// 3. Embers
-	if rand.Intn(100) < 10 {
-		rx := hearthLeft + rand.Intn(hearthRight - hearthLeft)
-		ry := (height / 2) * 2 + rand.Intn(20)
-		idx := ry * width + rx
-		if idx >= 0 && idx < len(fire) {
-			fire[idx] = 36
 		}
 	}
 }
@@ -383,30 +330,9 @@ func drawFire() {
 func drawEnvironment(minID, maxID int) {
 	woodColor := tcell.NewRGBColor(101, 67, 33) // Deep Brown
 	darkWoodColor := tcell.NewRGBColor(60, 30, 10)
-	brickColor := tcell.NewRGBColor(120, 40, 30)
-	mortarColor := tcell.NewRGBColor(60, 60, 60)
 	
 	for y := 0; y < height; y++ {
 		for x := 0; x < width; x++ {
-			// 1. Draw Brick Frame
-			if x < hearthLeft || x >= hearthRight {
-				// Simple brick pattern
-				isMortar := false
-				if y % 4 == 3 { isMortar = true }
-				rowBlock := y / 4
-				offset := (rowBlock % 2) * 4
-				if (x + offset) % 8 == 0 { isMortar = true }
-				
-				style := tcell.StyleDefault.Background(brickColor).Foreground(mortarColor)
-				char := ' '
-				if isMortar {
-					style = tcell.StyleDefault.Background(mortarColor)
-				}
-				screen.SetContent(x, y, char, nil, style)
-				continue
-			}
-
-			// 2. Draw Logs
 			logID := 0
 			if x >= 0 && x < width && y >= 0 && y < height {
 				logID = woodMap[y*width+x]
@@ -434,25 +360,6 @@ func drawEnvironment(minID, maxID int) {
 				
 				screen.SetContent(x, y, char, nil, style)
 			}
-		}
-	}
-}
-
-func drawGrate() {
-	grateColor := tcell.NewRGBColor(40, 40, 40)
-	style := tcell.StyleDefault.Background(tcell.ColorBlack).Foreground(grateColor)
-	
-	for x := hearthLeft + 2; x < hearthRight - 2; x++ {
-		// Bottom horizontal bar
-		screen.SetContent(x, height-1, '━', nil, style)
-		
-		// Vertical bars
-		if (x - hearthLeft) % 10 == 0 {
-			for y := height - 4; y < height; y++ {
-				screen.SetContent(x, y, '┃', nil, style)
-			}
-			// Top of vertical bar
-			screen.SetContent(x, height-5, '┳', nil, style)
 		}
 	}
 }
