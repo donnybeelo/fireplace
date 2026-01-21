@@ -61,7 +61,7 @@ func main() {
 	}
 	defer screen.Fini()
 
-	screen.SetStyle(tcell.StyleDefault.Background(tcell.ColorBlack).Foreground(tcell.ColorBlack))
+	screen.SetStyle(tcell.StyleDefault.Background(tcell.ColorDefault).Foreground(tcell.ColorBlack))
 	screen.Clear()
 
 	// Initial setup
@@ -95,7 +95,7 @@ func main() {
 			tick++
 			updateFire()
 
-			screen.SetStyle(tcell.StyleDefault.Background(tcell.ColorBlack).Foreground(tcell.ColorBlack))
+			screen.SetStyle(tcell.StyleDefault.Background(tcell.ColorDefault).Foreground(tcell.ColorBlack))
 			screen.Clear()
 
 			// 1. Draw all sticks first to establish the woodMap on the screen
