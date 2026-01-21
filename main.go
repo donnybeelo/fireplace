@@ -17,6 +17,7 @@ var (
 	hearthRight int // Right boundary of the fireplace
 	screen      tcell.Screen
 	fire        []int
+	woodMap     []int       // Stores log ID for each pixel (0 = empty)
 	colors      []tcell.Color
 )
 
@@ -105,14 +106,72 @@ func resize() {
 		woodHeight = 3
 	}
 	
-	// Hearth is centered, roughly 60% of width
-	hearthWidth := int(float64(width) * 0.6)
+	// Hearth is centered, 90% of width (wider)
+	hearthWidth := int(float64(width) * 0.9)
 	hearthLeft = (width - hearthWidth) / 2
 	hearthRight = hearthLeft + hearthWidth
 	
 	// Fire simulation grid
 	fireHeight = height * 2
 	initFire()
+	generateLogs()
+}
+
+func generateLogs() {
+	woodMap = make([]int, width*height)
+	
+	// Log settings
+	logRadius := float64(height) / 8.0
+	if logRadius < 2.0 { logRadius = 2.0 }
+	
+	centerX := float64(hearthLeft + hearthRight) / 2.0
+	bottomY := float64(height - 1)
+	
+	// Define logs (x, y, radius, id)
+	type Log struct {
+		x, y, r float64
+		id      int
+	}
+	
+	logs := []Log{}
+	
+	// Bottom row (3 logs)
+	// Spacing: 2 * radius * overlap
+	// X radius is roughly 2.0 * logRadius
+	rx := logRadius * 2.2
+	
+	spacing := rx * 0.9
+	
+	logs = append(logs, Log{x: centerX, y: bottomY - logRadius*0.8, r: logRadius, id: 1})
+	logs = append(logs, Log{x: centerX - spacing, y: bottomY - logRadius*0.6, r: logRadius, id: 2})
+	logs = append(logs, Log{x: centerX + spacing, y: bottomY - logRadius*0.6, r: logRadius, id: 3})
+	
+	// Middle row (2 logs)
+	logs = append(logs, Log{x: centerX - spacing*0.5, y: bottomY - logRadius*1.5, r: logRadius*0.9, id: 4})
+	logs = append(logs, Log{x: centerX + spacing*0.5, y: bottomY - logRadius*1.5, r: logRadius*0.9, id: 5})
+	
+	// Top row (1 log)
+	logs = append(logs, Log{x: centerX, y: bottomY - logRadius*2.3, r: logRadius*0.8, id: 6})
+	
+	// Render logs to woodMap
+	for y := 0; y < height; y++ {
+		for x := 0; x < width; x++ {
+			for _, l := range logs {
+				// Ellipse equation: (dx / rx)^2 + (dy / ry)^2 <= 1
+				// rx is width (cols), ry is height (rows)
+				// Visually 1 row = 2 cols roughly.
+				currentRx := l.r * 2.2
+				currentRy := l.r
+				
+				nx := (float64(x) - l.x) / currentRx
+				ny := (float64(y) - l.y) / currentRy
+				
+				if nx*nx + ny*ny <= 1.0 {
+					woodMap[y*width+x] = l.id
+				}
+			}
+		}
+	}
 }
 
 func initFire() {
@@ -259,46 +318,63 @@ func drawFire() {
 }
 
 func drawEnvironment() {
-	woodColor := tcell.NewRGBColor(139, 69, 19) // SaddleBrown
-	darkWoodColor := tcell.NewRGBColor(101, 67, 33) // Darker Brown
-	ashColor := tcell.NewRGBColor(50, 50, 50) // Dark Grey for ash/shadows
-
-	center := (hearthLeft + hearthRight) / 2
+	// Colors for different logs to distinguish them
+	woodColors := []tcell.Color{
+		tcell.ColorBlack, // 0 placeholder
+		tcell.NewRGBColor(139, 69, 19), // SaddleBrown
+		tcell.NewRGBColor(160, 82, 45), // Sienna
+		tcell.NewRGBColor(205, 133, 63), // Peru
+		tcell.NewRGBColor(120, 60, 20),
+		tcell.NewRGBColor(150, 75, 40),
+		tcell.NewRGBColor(190, 120, 50),
+		tcell.NewRGBColor(140, 70, 25),
+	}
+	
+	darkWoodColor := tcell.NewRGBColor(50, 25, 10) 
+	ashColor := tcell.NewRGBColor(50, 50, 50)
 
 	for y := 0; y < height; y++ {
 		for x := 0; x < width; x++ {
-			if isWood(x, y) {
-				// Texture logic for logs
-				// Determine angle based on side of center
-				// Left side leans right (positive slope visual), Right side leans left
+			logID := 0
+			if x >= 0 && x < width && y >= 0 && y < height {
+				logID = woodMap[y*width+x]
+			}
+			
+			if logID > 0 {
+				// Pick color based on log ID
+				colorIdx := (logID - 1) % (len(woodColors) - 1) + 1
+				baseColor := woodColors[colorIdx]
 				
-				// Texture noise
+				// Texture
 				noise := (x*57 + y*131) % 10
-				
 				var style tcell.Style
 				
-				// Add some "depth" - center logs are brighter/front
-				dist := math.Abs(float64(x - center))
-				if dist < 5 && noise > 5 {
-					style = tcell.StyleDefault.Background(woodColor).Foreground(tcell.ColorBlack)
+				if noise > 6 {
+					style = tcell.StyleDefault.Background(darkWoodColor).Foreground(baseColor)
 				} else {
-					style = tcell.StyleDefault.Background(darkWoodColor).Foreground(woodColor)
+					style = tcell.StyleDefault.Background(baseColor).Foreground(darkWoodColor)
 				}
 				
 				char := ' '
-				// Draw grain direction
-				if x < center {
-					if (x + y) % 3 == 0 { char = '\\' } // Leaning in from left
+				if logID % 2 == 0 {
+					if (x+y)%4 == 0 { char = '/' }
 				} else {
-					if (x - y) % 3 == 0 { char = '/' } // Leaning in from right
+					if (x-y)%4 == 0 { char = '\\' }
 				}
 				
-				// Occasional imperfections
-				if noise == 0 { char = 'O' } // Knot
+				// Outline effect for separation
+				isEdge := false
+				// Check Top (y-1)
+				if y > 0 && woodMap[(y-1)*width+x] != logID && woodMap[(y-1)*width+x] != 0 { isEdge = true }
+				
+				if isEdge {
+					style = tcell.StyleDefault.Background(tcell.ColorBlack).Foreground(baseColor)
+					char = '_'
+				}
 				
 				screen.SetContent(x, y, char, nil, style)
 			} else {
-				// Maybe draw some ash at the very bottom
+				// Ash
 				if y == height - 1 && x >= hearthLeft && x < hearthRight {
 					if rand.Intn(10) > 6 {
 						screen.SetContent(x, y, '.', nil, tcell.StyleDefault.Foreground(ashColor))
@@ -319,52 +395,24 @@ func clamp(h int) int {
 	return h
 }
 
-// Returns the height of the log "hump" at column x (0 if no log)
+// Returns the height of the wood from the bottom at column x
 func getLogHeight(x int) int {
-	if x < hearthLeft || x >= hearthRight {
+	if x < 0 || x >= width {
 		return 0
 	}
-	
-	center := (hearthLeft + hearthRight) / 2
-	halfWidth := float64(hearthRight - hearthLeft) / 2.0
-	
-	dist := math.Abs(float64(x - center))
-	normDist := dist / halfWidth
-	
-	if normDist > 1.0 {
-		return 0
+	// Scan from top (0) to bottom (height-1)
+	for y := 0; y < height; y++ {
+		if woodMap[y*width+x] != 0 {
+			// Found top of wood
+			return height - 1 - y
+		}
 	}
-	
-	// Teepee shape: Linear decrease from center
-	// Create "gaps" to simulate distinct logs leaning in
-	// We want roughly 3-4 logs visible
-	
-	// Base cone height
-	coneH := float64(woodHeight) * (1.0 - normDist)
-	
-	// Modulate to create log separation
-	// Using a cosine pattern to make "humps" (logs) and "valleys" (gaps)
-	// We want the logs to be higher than the gaps.
-	// cos(x) varies -1 to 1.
-	
-	mod := 1.0 + 0.3 * math.Cos(float64(x - center) * 0.5)
-	
-	return int(coneH * mod)
+	return 0
 }
 
 func isWood(x, y int) bool {
-	if x < hearthLeft || x >= hearthRight {
+	if x < 0 || x >= width || y < 0 || y >= height {
 		return false
 	}
-	// Distance from bottom of screen
-	distFromBottom := height - 1 - y
-	if distFromBottom < 0 {
-		return false
-	}
-	
-	h := getLogHeight(x)
-	// Simulate "leaning" by making the base wider/solid and the top sparse?
-	// The getLogHeight already gives a conical profile.
-	
-	return distFromBottom < h
+	return woodMap[y*width+x] != 0
 }
