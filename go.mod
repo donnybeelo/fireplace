@@ -1,4 +1,4 @@
-module fireplace
+module github.com/donnybeelo/fireplace
 
 go 1.25.1
 

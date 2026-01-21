@@ -10,18 +10,16 @@ import (
 )
 
 var (
-	width       int
-	height      int // Terminal height
-	fireHeight  int // Simulation height (height * 2 + seed)
-	woodHeight  int // Dynamic wood height
+	width      int
+	height     int // Terminal height
+	fireHeight int // Simulation height (height * 2 + seed)
 	hearthLeft  int // Left boundary of the fireplace
 	hearthRight int // Right boundary of the fireplace
 	screen      tcell.Screen
 	fire        []int
 	woodMap     []int // Stores log ID for each pixel (0 = empty)
 	colors      []tcell.Color
-	tick        int // Frame counter for animations
-	logCount    int // Number of logs generated
+	logCount int // Number of logs generated
 )
 
 // Doom fire palette definition (RGB) - No white/yellow
@@ -92,7 +90,6 @@ func main() {
 				}
 			}
 		case <-ticker.C:
-			tick++
 			updateFire()
 
 			screen.SetStyle(tcell.StyleDefault.Background(tcell.ColorDefault).Foreground(tcell.ColorBlack))
@@ -135,8 +132,8 @@ func generateLogs() {
 	}
 
 	type Log struct {
-		midX, midY     float64
-		dx, dy         float64
+		midX, midY float64
+
 		angle          float64
 		length         float64
 		r              float64
@@ -359,7 +356,7 @@ func updateFire() {
 					}
 				}
 
-				newHeat := max(pixel - decay, 0)
+				newHeat := max(pixel-decay, 0)
 				fire[dstIndex] = newHeat
 			}
 		}
@@ -408,16 +405,6 @@ func updateFire() {
 			}
 		}
 	}
-}
-
-func clampFloat(v, min, max float64) float64 {
-	if v < min {
-		return min
-	}
-	if v > max {
-		return max
-	}
-	return v
 }
 
 func drawFireBlended() {
@@ -553,16 +540,6 @@ func clampColor(v int32) int32 {
 	return v
 }
 
-func clampFloat32(v, min, max int32) int32 {
-	if v < min {
-		return min
-	}
-	if v > max {
-		return max
-	}
-	return v
-}
-
 func clamp(h int) int {
 	if h < 0 {
 		return 0
@@ -586,11 +563,4 @@ func getLogHeight(x int) int {
 		}
 	}
 	return 0
-}
-
-func isWood(x, y int) bool {
-	if x < 0 || x >= width || y < 0 || y >= height {
-		return false
-	}
-	return woodMap[y*width+x] != 0
 }
