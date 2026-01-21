@@ -187,8 +187,8 @@ func generateLogs() {
 		// Point mostly UP (-pi/2)
 		angle := -math.Pi/2.0 + (rand.Float64()-0.5)*0.5
 		
-		// Very short logs
-		l := logLen * (0.2 + rand.Float64()*0.2)
+		// Extremely short logs to look like ends pointing at viewer
+		l := logLen * (0.05 + rand.Float64()*0.1)
 		
 		x2 := x1 + math.Cos(angle)*l
 		y2 := y1 + math.Sin(angle)*l
