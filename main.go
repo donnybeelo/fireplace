@@ -339,10 +339,10 @@ func drawEnvironment(minID, maxID int) {
 				// Calculate depth factor (0.0 back to 1.0 front)
 				depth := float64(logID) / float64(logCount)
 				
-				// Base log color ( Peru-ish to SaddleBrown-ish )
-				r := int32(60 + depth*100)
-				g := int32(30 + depth*60)
-				b := int32(10 + depth*25)
+				// Much darker log colors
+				r := int32(20 + depth*40)
+				g := int32(10 + depth*20)
+				b := int32(5 + depth*10)
 				
 				baseColor := tcell.NewRGBColor(r, g, b)
 				darkColor := tcell.NewRGBColor(r/2, g/2, b/2)
@@ -359,12 +359,11 @@ func drawEnvironment(minID, maxID int) {
 				
 				char := ' '
 				
-				// Highlight top edge with a brighter color instead of characters
+				// Subtle top edge highlight (glow from fire)
 				if y > 0 && woodMap[(y-1)*width+x] != logID {
-					// Pixel above is empty or a different log
-					highlightR := clampFloat32(r+30, 0, 255)
-					highlightG := clampFloat32(g+20, 0, 255)
-					highlightB := clampFloat32(b+10, 0, 255)
+					highlightR := clampFloat32(r+20, 0, 255)
+					highlightG := clampFloat32(g+10, 0, 255)
+					highlightB := clampFloat32(b+5, 0, 255)
 					style = style.Background(tcell.NewRGBColor(int32(highlightR), int32(highlightG), int32(highlightB)))
 				}
 				
