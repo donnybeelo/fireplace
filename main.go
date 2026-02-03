@@ -612,7 +612,7 @@ func isWood(x, y int) bool {
 func initAudio() {
 	var readyChan chan struct{}
 	var err error
-	audioCtx, readyChan, err = oto.NewContext(44100, 1, 2)
+	audioCtx, readyChan, err = oto.NewContext(44100, 2, 2)
 	if err != nil {
 		// Audio is optional, continue without it
 		audioCtx = nil
@@ -650,7 +650,7 @@ func playWhiteNoise(duration float64, _ int, _ int, gain float64) {
 
 	sampleRate := 44100
 	numSamples := int(float64(sampleRate) * duration)
-	samples := make([]byte, numSamples*2) // 16-bit samples
+	samples := make([]byte, numSamples*4) // 16-bit stereo samples
 
 	// Apply fade in/out for the sizzle effect
 	fadeLen := int(0.02 * float64(sampleRate))
@@ -680,8 +680,11 @@ func playWhiteNoise(duration float64, _ int, _ int, gain float64) {
 		}
 
 		s := int16(sample)
-		samples[i*2] = byte(s)
-		samples[i*2+1] = byte(s >> 8)
+		base := i * 4
+		samples[base] = byte(s)
+		samples[base+1] = byte(s >> 8)
+		samples[base+2] = byte(s)
+		samples[base+3] = byte(s >> 8)
 	}
 
 	player := audioCtx.NewPlayer(bytes.NewReader(samples))
@@ -695,7 +698,7 @@ func playWoodCrack(duration float64, gain float64) {
 
 	sampleRate := 44100
 	numSamples := int(float64(sampleRate) * duration)
-	samples := make([]byte, numSamples*2) // 16-bit samples
+	samples := make([]byte, numSamples*4) // 16-bit stereo samples
 
 	// State for filtered noise
 	var filterState1, filterState2 float64
@@ -737,8 +740,11 @@ func playWoodCrack(duration float64, gain float64) {
 		}
 
 		s := int16(sample)
-		samples[i*2] = byte(s)
-		samples[i*2+1] = byte(s >> 8)
+		base := i * 4
+		samples[base] = byte(s)
+		samples[base+1] = byte(s >> 8)
+		samples[base+2] = byte(s)
+		samples[base+3] = byte(s >> 8)
 	}
 
 	player := audioCtx.NewPlayer(bytes.NewReader(samples))
@@ -751,7 +757,7 @@ type RumbleReader struct {
 }
 
 func (r *RumbleReader) Read(p []byte) (n int, err error) {
-	numSamples := len(p) / 2
+	numSamples := len(p) / 4
 
 	// State for multiple overlapping chaotic oscillators
 	var chaos1, chaos2, chaos3 float64
@@ -831,8 +837,11 @@ func (r *RumbleReader) Read(p []byte) (n int, err error) {
 		}
 
 		s := int16(sample)
-		p[i*2] = byte(s)
-		p[i*2+1] = byte(s >> 8)
+		base := i * 4
+		p[base] = byte(s)
+		p[base+1] = byte(s >> 8)
+		p[base+2] = byte(s)
+		p[base+3] = byte(s >> 8)
 	}
 
 	r.sampleOffset += numSamples
