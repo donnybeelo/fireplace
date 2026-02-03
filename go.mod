@@ -2,9 +2,13 @@ module github.com/donnybeelo/fireplace
 
 go 1.25.1
 
-require github.com/gdamore/tcell/v2 v2.13.7
+require (
+	github.com/gdamore/tcell/v2 v2.13.7
+	github.com/hajimehoshi/oto/v2 v2.4.3
+)
 
 require (
+	github.com/ebitengine/purego v0.4.1 // indirect
 	github.com/gdamore/encoding v1.0.1 // indirect
 	github.com/lucasb-eyer/go-colorful v1.3.0 // indirect
 	github.com/rivo/uniseg v0.4.7 // indirect

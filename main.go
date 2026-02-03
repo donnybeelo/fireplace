@@ -1,25 +1,32 @@
 package main
 
 import (
+	"bytes"
+	"flag"
 	"math"
 	"math/rand"
 	"sort"
 	"time"
 
 	"github.com/gdamore/tcell/v2"
+	"github.com/hajimehoshi/oto/v2"
 )
 
 var (
-	width      int
-	height     int // Terminal height
-	fireHeight int // Simulation height (height * 2 + seed)
+	width       int
+	height      int // Terminal height
+	fireHeight  int // Simulation height (height * 2 + seed)
 	hearthLeft  int // Left boundary of the fireplace
 	hearthRight int // Right boundary of the fireplace
 	screen      tcell.Screen
 	fire        []int
 	woodMap     []int // Stores log ID for each pixel (0 = empty)
 	colors      []tcell.Color
-	logCount int // Number of logs generated
+	logCount    int // Number of logs generated
+	tick        int // Frame counter for animations
+	audioCtx    *oto.Context
+	rumbleState float64 // State for brown noise rumble
+	silentMode  bool    // Whether audio is disabled
 )
 
 // Doom fire palette definition (RGB) - No white/yellow
@@ -48,6 +55,12 @@ func init() {
 }
 
 func main() {
+	// Parse command line flags
+	silent := flag.Bool("silent", false, "start with audio disabled")
+	flag.BoolVar(silent, "s", false, "start with audio disabled (shorthand)")
+	flag.Parse()
+	silentMode = *silent
+
 	var err error
 	screen, err = tcell.NewScreen()
 	if err != nil {
@@ -65,6 +78,17 @@ func main() {
 	// Initial setup
 	rand.New(rand.NewSource(time.Now().UnixNano()))
 	resize()
+
+	// Initialize audio
+	if !silentMode {
+		initAudio()
+
+		// Start audio crackling in background
+		go audioLoop()
+
+		// Start continuous low-frequency rumble
+		go rumbleLoop()
+	}
 
 	// Event handling
 	events := make(chan tcell.Event)
@@ -90,6 +114,7 @@ func main() {
 				}
 			}
 		case <-ticker.C:
+			tick++
 			updateFire()
 
 			screen.SetStyle(tcell.StyleDefault.Background(tcell.ColorDefault).Foreground(tcell.ColorBlack))
@@ -132,8 +157,8 @@ func generateLogs() {
 	}
 
 	type Log struct {
-		midX, midY float64
-
+		midX, midY     float64
+		dx, dy         float64
 		angle          float64
 		length         float64
 		r              float64
@@ -143,7 +168,8 @@ func generateLogs() {
 	}
 
 	tempLogs := []Log{}
-	numLogs := 100
+	numLogs := int(float64(width*height) / 150)
+	numLogs = min(numLogs, 120)
 	// Ensure we have an even number for pairing
 	if numLogs%2 != 0 {
 		numLogs++
@@ -540,6 +566,16 @@ func clampColor(v int32) int32 {
 	return v
 }
 
+func clampFloat32(v, min, max int32) int32 {
+	if v < min {
+		return min
+	}
+	if v > max {
+		return max
+	}
+	return v
+}
+
 func clamp(h int) int {
 	if h < 0 {
 		return 0
@@ -563,4 +599,259 @@ func getLogHeight(x int) int {
 		}
 	}
 	return 0
+}
+
+func isWood(x, y int) bool {
+	if x < 0 || x >= width || y < 0 || y >= height {
+		return false
+	}
+	return woodMap[y*width+x] != 0
+}
+
+// Audio functions for fireplace crackling sounds
+
+func initAudio() {
+	var readyChan chan struct{}
+	var err error
+	audioCtx, readyChan, err = oto.NewContext(44100, 1, 2)
+	if err != nil {
+		// Audio is optional, continue without it
+		audioCtx = nil
+		return
+	}
+	<-readyChan
+}
+
+func audioLoop() {
+	if audioCtx == nil {
+		return
+	}
+
+	for {
+		R := rand.Intn(100000)
+
+		if R > 99000 {
+			// Wood cracking: Sharp mid-frequency crack with decay
+			gain := 0.3 + rand.Float64()/10.0
+			playWoodCrack(0.08+rand.Float64()*0.12, gain)
+		} else if R < 10000 {
+			// The "Sizzle": High frequency, very short "spark"
+			gain := float64((R/200)-30) / 100.0
+			playWhiteNoise(0.01, 6000, 8000, gain)
+		} else {
+			time.Sleep(50 * time.Millisecond)
+		}
+	}
+}
+
+func playWhiteNoise(duration float64, _ int, _ int, gain float64) {
+	if audioCtx == nil {
+		return
+	}
+
+	sampleRate := 44100
+	numSamples := int(float64(sampleRate) * duration)
+	samples := make([]byte, numSamples*2) // 16-bit samples
+
+	// Apply fade in/out for the sizzle effect
+	fadeLen := int(0.02 * float64(sampleRate))
+
+	for i := range numSamples {
+		// Generate white noise
+		white := rand.Float64()*2.0 - 1.0
+
+		// Simple highpass filter approximation (just attenuate by position)
+		filtered := white * 0.3
+
+		// Apply fade envelope
+		envelope := 1.0
+		if i < fadeLen {
+			envelope = float64(i) / float64(fadeLen)
+		} else if i > numSamples-fadeLen {
+			envelope = float64(numSamples-i) / float64(fadeLen)
+		}
+
+		// Apply gain and envelope
+		sample := filtered * gain * envelope * 32767.0
+		if sample > 32767 {
+			sample = 32767
+		}
+		if sample < -32768 {
+			sample = -32768
+		}
+
+		s := int16(sample)
+		samples[i*2] = byte(s)
+		samples[i*2+1] = byte(s >> 8)
+	}
+
+	player := audioCtx.NewPlayer(bytes.NewReader(samples))
+	player.Play()
+}
+
+func playWoodCrack(duration float64, gain float64) {
+	if audioCtx == nil {
+		return
+	}
+
+	sampleRate := 44100
+	numSamples := int(float64(sampleRate) * duration)
+	samples := make([]byte, numSamples*2) // 16-bit samples
+
+	// State for filtered noise
+	var filterState1, filterState2 float64
+
+	for i := range numSamples {
+		// Generate aggressive noise burst
+		noise := rand.Float64()*2.0 - 1.0
+
+		// Apply aggressive bandpass filtering to create "snapping" texture
+		filterState1 = filterState1*0.85 + noise*0.15
+		filterState2 = filterState2*0.75 + (filterState1-filterState2)*0.25
+
+		// Sharp impulse at the start for the initial crack
+		progress := float64(i) / float64(numSamples)
+		impulse := 0.0
+		if progress < 0.01 {
+			// Very sharp initial impulse
+			impulse = (1.0 - progress/0.01) * 0.8
+		}
+
+		// Main crack sound is mostly noise with filtering
+		crack := filterState2*0.9 + noise*0.1 + impulse
+
+		// Very fast exponential decay
+		envelope := math.Exp(-progress * 12.0)
+
+		// Extremely sharp attack (almost instant)
+		if progress < 0.003 {
+			envelope *= progress / 0.003
+		}
+
+		// Apply gain and envelope
+		sample := crack * gain * envelope * 32767.0
+		if sample > 32767 {
+			sample = 32767
+		}
+		if sample < -32768 {
+			sample = -32768
+		}
+
+		s := int16(sample)
+		samples[i*2] = byte(s)
+		samples[i*2+1] = byte(s >> 8)
+	}
+
+	player := audioCtx.NewPlayer(bytes.NewReader(samples))
+	player.Play()
+}
+
+// RumbleReader generates continuous low-frequency rumble audio
+type RumbleReader struct {
+	sampleOffset int
+}
+
+func (r *RumbleReader) Read(p []byte) (n int, err error) {
+	numSamples := len(p) / 2
+
+	// State for multiple overlapping chaotic oscillators
+	var chaos1, chaos2, chaos3 float64
+
+	for i := range numSamples {
+		// Vary brown noise generation parameters randomly (gentler)
+		whiteAmp := 0.008 + rand.Float64()*0.006
+		white := (rand.Float64()*2.0 - 1.0) * whiteAmp
+
+		// Vary decay coefficient subtly for timbral variation
+		decay := 0.994 + rand.Float64()*0.003
+		rumbleState = (rumbleState + white) * decay
+
+		// Keep brown noise bounded
+		if rumbleState > 1.0 {
+			rumbleState = 1.0
+		} else if rumbleState < -1.0 {
+			rumbleState = -1.0
+		}
+
+		// Rare, gentle impulses - subtle deep movements
+		impulse := 0.0
+		if rand.Float64() < 0.0001 {
+			impulse = (rand.Float64()*2.0 - 1.0) * (0.1 + rand.Float64()*0.15)
+		}
+
+		// Multiple chaotic low-frequency oscillators with gentler random walks
+		chaos1 += (rand.Float64()*2.0 - 1.0) * 0.003
+		chaos1 *= 0.998 + rand.Float64()*0.002
+		if chaos1 > 0.3 {
+			chaos1 = 0.3
+		} else if chaos1 < -0.3 {
+			chaos1 = -0.3
+		}
+
+		chaos2 += (rand.Float64()*2.0 - 1.0) * 0.005
+		chaos2 *= 0.997 + rand.Float64()*0.003
+		if chaos2 > 0.35 {
+			chaos2 = 0.35
+		} else if chaos2 < -0.35 {
+			chaos2 = -0.35
+		}
+
+		// Very slow chaos for subtle deep undertones
+		if rand.Float64() < 0.03 {
+			chaos3 += (rand.Float64()*2.0 - 1.0) * 0.08
+			chaos3 *= 0.995
+			if chaos3 > 0.25 {
+				chaos3 = 0.25
+			} else if chaos3 < -0.25 {
+				chaos3 = -0.25
+			}
+		}
+
+		// Low-pass filter with subtle random coefficient
+		filterAmt := 0.75 + rand.Float64()*0.15
+		rumble := rumbleState * filterAmt
+
+		// Combine chaotic elements with reduced mixing
+		rumble += chaos1*0.15 + chaos2*0.12 + chaos3*0.1 + impulse
+
+		// Very rarely inject subtle burst of noise
+		if rand.Float64() < 0.0005 {
+			rumble += (rand.Float64()*2.0 - 1.0) * 0.08
+		}
+
+		// Much quieter base gain for subtle background
+		gain := 0.06 + (rand.Float64() * 0.05)
+
+		sample := rumble * gain * 32767.0
+
+		if sample > 32767 {
+			sample = 32767
+		}
+		if sample < -32768 {
+			sample = -32768
+		}
+
+		s := int16(sample)
+		p[i*2] = byte(s)
+		p[i*2+1] = byte(s >> 8)
+	}
+
+	r.sampleOffset += numSamples
+	return len(p), nil
+}
+
+func rumbleLoop() {
+	if audioCtx == nil {
+		return
+	}
+
+	// Create a continuous streaming player
+	rumbleReader := &RumbleReader{}
+	player := audioCtx.NewPlayer(rumbleReader)
+	defer player.Close()
+
+	player.Play()
+
+	// Keep the goroutine alive
+	select {}
 }
