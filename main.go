@@ -168,8 +168,7 @@ func generateLogs() {
 	}
 
 	tempLogs := []Log{}
-	numLogs := int(float64(width*height) / 150)
-	numLogs = min(numLogs, 120)
+	numLogs := min(width, 120)
 	// Ensure we have an even number for pairing
 	if numLogs%2 != 0 {
 		numLogs++
