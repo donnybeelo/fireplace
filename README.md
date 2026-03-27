@@ -4,7 +4,7 @@ A terminal-based fireplace simulation for creating cozy atmosphere in your termi
 
 ## Usage
 
-Install the program into $GOPATH/bin (make sure $GOPATH/bin is in your PATH):
+Install the program into `$GOPATH/bin` (make sure `$GOPATH/bin` is in your `PATH`):
 
 ```sh
 go install
