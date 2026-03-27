@@ -2,6 +2,8 @@
 
 A terminal-based fireplace simulation for creating cozy atmosphere in your terminal. It renders a fire in the TUI and can play accompanying fireplace sound effects.
 
+<img width="400" alt="fireplace" src="https://github.com/user-attachments/assets/9286201b-d5d7-4726-b6e3-66d64f59c98b" />
+
 ## Usage
 
 Install the program into `$GOPATH/bin` (make sure `$GOPATH/bin` is in your `PATH`):
